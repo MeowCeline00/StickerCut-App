@@ -1,98 +1,164 @@
-import * as Device from 'expo-device';
-import { Platform, StyleSheet } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { router, useFocusEffect } from "expo-router";
 
-import { AnimatedIcon } from '@/components/animated-icon';
-import { HintRow } from '@/components/hint-row';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { WebBadge } from '@/components/web-badge';
-import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
+import { useCallback, useState } from "react";
 
-function getDevMenuHint() {
-  if (Platform.OS === 'web') {
-    return <ThemedText type="small">use browser devtools</ThemedText>;
-  }
-  if (Device.isDevice) {
-    return (
-      <ThemedText type="small">
-        shake device or press <ThemedText type="code">m</ThemedText> in terminal
-      </ThemedText>
-    );
-  }
-  const shortcut = Platform.OS === 'android' ? 'cmd+m (or ctrl+m)' : 'cmd+d';
-  return (
-    <ThemedText type="small">
-      press <ThemedText type="code">{shortcut}</ThemedText>
-    </ThemedText>
-  );
-}
+import { Alert, FlatList, Text, TouchableOpacity, View } from "react-native";
+
+import { SafeAreaView } from "react-native-safe-area-context";
+
+import { deleteProject, loadProjects } from "@/storage/projectStorage";
+
+import { styles } from "@/styles/index.styles";
+
+import type { StickerProject } from "@/types/project";
 
 export default function HomeScreen() {
+  const [projects, setProjects] = useState<StickerProject[]>([]);
+
+  const [loading, setLoading] = useState(true);
+
+  // Reload the project list every time this screen
+  // regains focus, e.g. after Save in the editor or
+  // after backing out of New Project.
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+
+      async function refresh() {
+        const stored = await loadProjects();
+
+        if (!cancelled) {
+          setProjects(stored);
+
+          setLoading(false);
+        }
+      }
+
+      refresh();
+
+      return () => {
+        cancelled = true;
+      };
+    }, []),
+  );
+
+  function handleNewProject() {
+    router.push("/new-project");
+  }
+
+  function handleOpenProject(project: StickerProject) {
+    router.push({
+      pathname: "/editor",
+
+      params: {
+        projectId: project.id,
+      },
+    });
+  }
+
+  function handleDeleteProject(project: StickerProject) {
+    Alert.alert(
+      "Delete project",
+      `Delete "${project.name}"? This cannot be undone.`,
+      [
+        {
+          text: "Cancel",
+          style: "cancel",
+        },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            await deleteProject(project.id);
+
+            setProjects((current) =>
+              current.filter((existing) => existing.id !== project.id),
+            );
+          },
+        },
+      ],
+    );
+  }
+
   return (
-    <ThemedView style={styles.container}>
-      <SafeAreaView style={styles.safeArea}>
-        <ThemedView style={styles.heroSection}>
-          <AnimatedIcon />
-          <ThemedText type="title" style={styles.title}>
-            Welcome to&nbsp;Expo
-          </ThemedText>
-        </ThemedView>
+    <SafeAreaView style={styles.safeArea}>
+      <View style={styles.container}>
+        <View style={styles.header}>
+          <View>
+            <Text style={styles.headerCode}>CUT LINE</Text>
 
-        <ThemedText type="code" style={styles.code}>
-          get started
-        </ThemedText>
+            <Text style={styles.title}>My Projects</Text>
+          </View>
 
-        <ThemedView type="backgroundElement" style={styles.stepContainer}>
-          <HintRow
-            title="Try editing"
-            hint={<ThemedText type="code">src/app/index.tsx</ThemedText>}
+          <TouchableOpacity style={styles.newButton} onPress={handleNewProject}>
+            <Text style={styles.newButtonText}>+ New</Text>
+          </TouchableOpacity>
+        </View>
+
+        {loading ? (
+          <View style={styles.centerFill}>
+            <Text style={styles.loadingText}>LOADING PROJECTS...</Text>
+          </View>
+        ) : projects.length === 0 ? (
+          <View style={styles.centerFill}>
+            <Text style={styles.emptyIcon}>✂</Text>
+
+            <Text style={styles.emptyTitle}>NO PROJECTS YET</Text>
+
+            <Text style={styles.emptyText}>
+              Tap + New to start your first sticker sheet
+            </Text>
+          </View>
+        ) : (
+          <FlatList
+            data={projects}
+            keyExtractor={(item) => item.id}
+            contentContainerStyle={styles.listContent}
+            renderItem={({ item }) => (
+              <TouchableOpacity
+                style={styles.card}
+                activeOpacity={0.85}
+                onPress={() => handleOpenProject(item)}
+              >
+                <View style={styles.cardThumb}>
+                  <Text style={styles.cardThumbIcon}>✂</Text>
+                </View>
+
+                <View style={styles.cardInfo}>
+                  <Text style={styles.cardName} numberOfLines={1}>
+                    {item.name}
+                  </Text>
+
+                  <Text style={styles.cardMeta}>
+                    {item.canvas.widthMm}
+                    {" × "}
+                    {item.canvas.heightMm}
+                    {" mm · "}
+                    {item.stickers.length}
+                    {" sticker"}
+                    {item.stickers.length !== 1 ? "s" : ""}
+                  </Text>
+
+                  <Text style={styles.cardDate}>
+                    {new Date(item.updatedAt).toLocaleDateString(undefined, {
+                      month: "short",
+                      day: "numeric",
+                      year: "numeric",
+                    })}
+                  </Text>
+                </View>
+
+                <TouchableOpacity
+                  style={styles.deleteButton}
+                  onPress={() => handleDeleteProject(item)}
+                >
+                  <Text style={styles.deleteButtonText}>×</Text>
+                </TouchableOpacity>
+              </TouchableOpacity>
+            )}
           />
-          <HintRow title="Dev tools" hint={getDevMenuHint()} />
-          <HintRow
-            title="Fresh start"
-            hint={<ThemedText type="code">npm run reset-project</ThemedText>}
-          />
-        </ThemedView>
-
-        {Platform.OS === 'web' && <WebBadge />}
-      </SafeAreaView>
-    </ThemedView>
+        )}
+      </View>
+    </SafeAreaView>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    justifyContent: 'center',
-    flexDirection: 'row',
-  },
-  safeArea: {
-    flex: 1,
-    paddingHorizontal: Spacing.four,
-    alignItems: 'center',
-    gap: Spacing.three,
-    paddingBottom: BottomTabInset + Spacing.three,
-    maxWidth: MaxContentWidth,
-  },
-  heroSection: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    flex: 1,
-    paddingHorizontal: Spacing.four,
-    gap: Spacing.four,
-  },
-  title: {
-    textAlign: 'center',
-  },
-  code: {
-    textTransform: 'uppercase',
-  },
-  stepContainer: {
-    gap: Spacing.three,
-    alignSelf: 'stretch',
-    paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.four,
-    borderRadius: Spacing.four,
-  },
-});
