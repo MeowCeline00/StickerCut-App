@@ -132,14 +132,27 @@ export default function EditorScreen() {
   }
 
   /**
-   * Applies a finished drag-to-resize gesture (bottom-right handle
-   * only — see StickerItem.tsx). MIN_STICKER_MM stops a sticker from
-   * being shrunk to nothing or flipped to a negative size; the same
-   * floor is also applied live, in the gesture itself, so the
-   * visual drag and the committed result never disagree.
+   * Applies a finished drag-to-resize gesture from any of the four
+   * corner handles (see StickerItem.tsx). deltaXMm/deltaYMm are only
+   * ever non-zero for a top- or left-anchored corner, where resizing
+   * also shifts the sticker's position so the OPPOSITE corner stays
+   * put — StickerItem.tsx already computes an aspect-ratio-correct,
+   * MIN_STICKER_MM-respecting result before it ever gets here, so
+   * this handler's own Math.max is just a defense-in-depth floor,
+   * not the primary place that logic lives.
    */
-  function handleStickerResize(id: string, deltaWidthMm: number, deltaHeightMm: number) {
+  function handleStickerResize(
+    id: string,
+    deltaWidthMm: number,
+    deltaHeightMm: number,
+    deltaXMm: number,
+    deltaYMm: number,
+  ) {
     if (!project) {
+      return;
+    }
+
+    if (deltaWidthMm === 0 && deltaHeightMm === 0 && deltaXMm === 0 && deltaYMm === 0) {
       return;
     }
 
@@ -152,6 +165,8 @@ export default function EditorScreen() {
 
         return {
           ...sticker,
+          xMm: sticker.xMm + deltaXMm,
+          yMm: sticker.yMm + deltaYMm,
           widthMm: Math.max(MIN_STICKER_MM, sticker.widthMm + deltaWidthMm),
           heightMm: Math.max(MIN_STICKER_MM, sticker.heightMm + deltaHeightMm),
         };

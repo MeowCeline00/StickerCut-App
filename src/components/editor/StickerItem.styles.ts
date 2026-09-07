@@ -2,11 +2,25 @@ import { StyleSheet } from "react-native";
 
 import { Colors } from "@/constants/colors";
 
-const HANDLE_SIZE = 10;
 const OVERLAY_INSET = 8;
+const RESIZE_HANDLE_VISUAL_SIZE = 12;
+const RESIZE_TOUCH_TARGET_SIZE = 40;
 
 export const styles = StyleSheet.create({
-  wrapper: {
+  // Purely a layout container: exists to give the resize handles'
+  // touch targets real native bounds to be touched within (see the
+  // long comment on RESIZE_TOUCH_TARGET_MARGIN in StickerItem.tsx).
+  // box-none (set where this is rendered) keeps its own empty padding
+  // area from swallowing touches meant for the canvas underneath.
+  interactionRoot: {
+    position: "absolute",
+  },
+
+  // The actual sticker: image, border, and label. Positioned at a
+  // fixed offset inside interactionRoot; its live position/size while
+  // dragging comes from Reanimated shared values layered on top of
+  // this base style.
+  visualBox: {
     position: "absolute",
   },
 
@@ -15,9 +29,11 @@ export const styles = StyleSheet.create({
     height: "100%",
   },
 
-  // Sits slightly outside the sticker's own bounds so the corner
-  // handles read as attached to the edge, CAD-style, rather than
-  // overlapping the artwork itself.
+  // Sits slightly outside the sticker's own bounds so the border reads
+  // as attached to the edge, CAD-style, rather than overlapping the
+  // artwork itself. Purely visual (pointerEvents="none" where used) —
+  // the actual corner handles are now separate sibling views, not
+  // children of this overlay, so they can have real touch targets.
   selectionOverlay: {
     position: "absolute",
     top: -OVERLAY_INSET,
@@ -28,45 +44,28 @@ export const styles = StyleSheet.create({
     borderColor: Colors.accentBright,
   },
 
-  // Drawn now for the CAD look; drag/resize gestures attach to
-  // these in a later phase, so they're non-interactive for now.
-  cornerHandle: {
+  // One of these renders per corner, sized to a finger-friendly ~40dp
+  // even though the visible handle inside it (resizeHandleVisual) is
+  // much smaller — see RESIZE_TOUCH_TARGET_SIZE vs
+  // RESIZE_HANDLE_VISUAL_SIZE in StickerItem.tsx. Centered content so
+  // the small visual square sits in the middle of the larger touch area.
+  resizeTouchTarget: {
     position: "absolute",
-    width: HANDLE_SIZE,
-    height: HANDLE_SIZE,
-    borderRadius: 2,
+    width: RESIZE_TOUCH_TARGET_SIZE,
+    height: RESIZE_TOUCH_TARGET_SIZE,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  // The visible CAD handle is intentionally small, but the gesture
+  // target (resizeTouchTarget, above) is larger so it remains usable
+  // on a touch screen.
+  resizeHandleVisual: {
+    width: RESIZE_HANDLE_VISUAL_SIZE,
+    height: RESIZE_HANDLE_VISUAL_SIZE,
+    borderRadius: 3,
     borderWidth: 1.5,
     borderColor: Colors.accentBright,
-    backgroundColor: Colors.background,
-  },
-
-  cornerTopLeft: {
-    top: -HANDLE_SIZE / 2,
-    left: -HANDLE_SIZE / 2,
-  },
-
-  cornerTopRight: {
-    top: -HANDLE_SIZE / 2,
-    right: -HANDLE_SIZE / 2,
-  },
-
-  cornerBottomLeft: {
-    bottom: -HANDLE_SIZE / 2,
-    left: -HANDLE_SIZE / 2,
-  },
-
-  cornerBottomRight: {
-    bottom: -HANDLE_SIZE / 2,
-    right: -HANDLE_SIZE / 2,
-  },
-
-  // The only corner handle that's actually interactive right now —
-  // slightly larger visually than the other three (in addition to
-  // its gesture's own hitSlop) so it reads as the "grabbable" one.
-  resizeHandle: {
-    width: HANDLE_SIZE + 4,
-    height: HANDLE_SIZE + 4,
-    borderRadius: 3,
     backgroundColor: Colors.accentBright,
   },
 
