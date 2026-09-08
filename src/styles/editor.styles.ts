@@ -1,17 +1,7 @@
 import { StyleSheet } from 'react-native';
 
 import { Colors } from '@/constants/colors';
-
-// The page's own border stroke (see printCanvas below) sits OUTSIDE the
-// actual mm=0 content origin: children positioned at left:0/top:0 render
-// inset by this many px from printCanvas's outer edge, because Yoga lays
-// out absolutely-positioned children relative to the parent's padding
-// box, not its border box. CanvasRuler.tsx imports this same constant to
-// offset every tick position by it, so the ruler's zero tick lines up
-// with where mm=0 actually renders, not with printCanvas's outer edge
-// (CRITICAL FIX 7) — one shared coordinate origin instead of two
-// independently-guessed offsets.
-export const PAGE_ORIGIN_OFFSET_PX = 22;
+import { RULER_SIZE_PX, PAGE_BORDER_PX } from '@/constants/editor-layout';
 
 export const styles = StyleSheet.create({
   safeArea: {
@@ -69,6 +59,15 @@ export const styles = StyleSheet.create({
     fontWeight: '700',
   },
 
+  projectNameInput: {
+    color: Colors.text,
+    fontSize: 15,
+    fontWeight: '700',
+    padding: 0,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.accent,
+  },
+
   projectMeta: {
     color: Colors.textSecondary,
     fontSize: 10,
@@ -100,18 +99,17 @@ export const styles = StyleSheet.create({
   },
 
   // 2x2 grid: [cornerSpacer, topRuler] / [leftRuler, page]. The ruler
-  // and page rows/columns share the exact same widths/heights, so the
-  // ruler CONTAINER'S outer edge lines up with the page's outer edge —
-  // but the page's real mm=0 origin sits PAGE_ORIGIN_OFFSET_PX inside
-  // that (see the constant above), which is why CanvasRuler.tsx also
-  // shifts every tick position by that same constant (CRITICAL FIX 7).
+  // and page rows/columns share the exact same RULER_SIZE_PX thickness,
+  // so the ruler CONTAINER'S outer edge lines up exactly with the
+  // page's outer edge, which is also the mm=0 content origin — no
+  // offset needed anywhere else (see src/constants/editor-layout.ts).
   rulerGridRow: {
     flexDirection: 'row',
   },
 
   cornerSpacer: {
-    width: 20,
-    height: 20,
+    width: RULER_SIZE_PX,
+    height: RULER_SIZE_PX,
     backgroundColor: Colors.ruler,
   },
 
@@ -119,11 +117,24 @@ export const styles = StyleSheet.create({
     flexDirection: 'row',
   },
 
+  // No borderWidth here: a real border would inset absolutely-positioned
+  // children (stickers, guides) by its own width, shifting the mm=0
+  // origin away from ruler tick 0. The visible page outline is instead
+  // drawn by `printCanvasBorder`, an absolutely-positioned overlay with
+  // no layout effect on its siblings.
   printCanvas: {
     position: 'relative',
-    borderWidth: PAGE_ORIGIN_OFFSET_PX,
-    borderColor: Colors.borderBright,
     overflow: 'hidden',
+  },
+
+  printCanvasBorder: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    borderWidth: PAGE_BORDER_PX,
+    borderColor: Colors.borderBright,
   },
 
   whiteCanvas: {
@@ -402,6 +413,29 @@ export const styles = StyleSheet.create({
 
   selectionActionTextActive: {
     color: Colors.accent,
+  },
+
+  // Technical readout for the selected sticker (resolution, background
+  // state) — moved here from the on-canvas annotation (CRITICAL FIX 5)
+  // so it no longer obstructs the artwork, while staying visible right
+  // above the action buttons for the same selected object.
+  selectionInfoRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingTop: 8,
+    backgroundColor: Colors.surface,
+  },
+
+  selectionInfoText: {
+    color: Colors.textSecondary,
+    fontSize: 10,
+    fontFamily: 'monospace',
+  },
+
+  selectionInfoTextWarning: {
+    color: Colors.danger,
   },
 
   // ---- Objects list (Canvas tab) ---------------------------------------

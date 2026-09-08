@@ -47,27 +47,34 @@ type AnimatedViewStyle =
     typeof Animated.View
   >["style"];
 
-const LOW_PPI_WARNING_THRESHOLD =
+export const LOW_PPI_WARNING_THRESHOLD =
   150;
 
 interface SelectionBadgesProps {
   sticker: StickerObject;
-
-  sourcePpi:
-    | number
-    | null;
 }
 
 /**
- * Displays CAD-style information around the selected sticker.
+ * Minimal on-canvas readout for the selected sticker (CRITICAL FIX 5).
+ *
+ * Only the physical size — plus a tiny rotation indicator when the
+ * sticker is actually rotated — renders over the artwork. PPI and
+ * background-removal state used to render here too, but that made the
+ * annotation big enough to obstruct the artwork itself; they now live
+ * in the editor's selected-object info row instead (see editor.tsx),
+ * which has room to be readable without covering anything.
  *
  * This component is presentational only.
  * Gesture logic remains inside StickerItem.tsx.
  */
 export function SelectionBadges({
   sticker,
-  sourcePpi,
 }: SelectionBadgesProps) {
+  const rotationDeg =
+    Math.round(
+      sticker.rotation,
+    );
+
   return (
     <View
       style={
@@ -84,65 +91,28 @@ export function SelectionBadges({
           style={
             styles.dimensionLabelText
           }
+          numberOfLines={1}
         >
           {sticker.widthMm.toFixed(
             1,
-          )}{" "}
-          ×{" "}
+          )}
+          {" × "}
           {sticker.heightMm.toFixed(
             1,
-          )}{" "}
-          mm
-
-          {sourcePpi !==
-            null && (
-            <Text
-              style={
-                sourcePpi <
-                LOW_PPI_WARNING_THRESHOLD
-                  ? styles.dimensionLabelWarning
-                  : undefined
-              }
-            >
-              {"  ·  "}
-              {Math.round(
-                sourcePpi,
-              )}{" "}
-              PPI
-              {sourcePpi <
-              LOW_PPI_WARNING_THRESHOLD
-                ? " (low)"
-                : ""}
-            </Text>
           )}
+          {" mm"}
         </Text>
 
-        <Text
-          style={
-            styles.dimensionLabelText
-          }
-        >
-          {Math.round(
-            sticker.rotation,
-          )}
-          °
-        </Text>
-
-        {/*
-          Background removal is not actually implemented yet.
-
-          This label reflects the real StickerObject state instead of
-          pretending that processing has occurred.
-        */}
-        <Text
-          style={
-            styles.backgroundBadgeText
-          }
-        >
-          {sticker.backgroundRemoved
-            ? "BG REMOVED"
-            : "ORIGINAL BG"}
-        </Text>
+        {rotationDeg !== 0 && (
+          <Text
+            style={
+              styles.rotationLabelText
+            }
+            numberOfLines={1}
+          >
+            {rotationDeg}°
+          </Text>
+        )}
       </View>
     </View>
   );

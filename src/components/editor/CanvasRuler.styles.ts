@@ -8,15 +8,6 @@ export const styles = StyleSheet.create({
     backgroundColor: Colors.ruler,
   },
 
-  // Referenced only for their numeric .height/.width values above —
-  // not applied directly as styles themselves.
-  horizontalHeight: {
-    height: 20,
-  },
-  verticalWidth: {
-    width: 20,
-  },
-
   tickWrapper: {
     position: 'absolute',
   },

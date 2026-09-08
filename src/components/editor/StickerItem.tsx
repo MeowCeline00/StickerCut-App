@@ -16,10 +16,7 @@ import {
   computeCornerResizeDelta,
   computeRotationDeltaDegrees,
 } from "@/utils/stickerTransformMath";
-import {
-  calculateSourcePpi,
-  mmToDisplay,
-} from "@/utils/units";
+import { mmToDisplay } from "@/utils/units";
 
 import {
   CutLinePreview,
@@ -195,16 +192,6 @@ export function StickerItem({
   const imageUri =
     sticker.processedUri ??
     sticker.sourceUri;
-
-  /**
-   * PPI is calculated from the original image pixels and its current
-   * physical print width.
-   */
-  const sourcePpi =
-    calculateSourcePpi(
-      sticker.originalWidthPx,
-      sticker.widthMm,
-    );
 
   // ============================================================
   // MOVE STATE
@@ -834,9 +821,6 @@ export function StickerItem({
           {showTransformHandles && (
             <SelectionBadges
               sticker={sticker}
-              sourcePpi={
-                sourcePpi
-              }
             />
           )}
 

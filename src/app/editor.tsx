@@ -13,6 +13,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   useWindowDimensions,
   View,
@@ -23,6 +24,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { CanvasRuler } from "@/components/editor/CanvasRuler";
 import { GuideLine } from "@/components/editor/GuideLine";
 import { StickerItem } from "@/components/editor/StickerItem";
+import { LOW_PPI_WARNING_THRESHOLD } from "@/components/editor/StickerTransformOverlay";
 
 import {
   CANVAS_COLOR_SWATCHES,
@@ -54,6 +56,11 @@ import type { CanvasGuide, StickerProject } from "@/types/project";
 
 import type { StickerObject } from "@/types/sticker";
 
+import {
+  normalizeProjectName,
+  PROJECT_NAME_MAX_LENGTH,
+} from "@/utils/fileNames";
+
 import { createId } from "@/utils/ids";
 
 import { getImageDimensions } from "@/utils/imageDimensions";
@@ -66,7 +73,11 @@ import {
 
 import { clampStickerPositionMm } from "@/utils/stickerTransformMath";
 
-import { calculateEditorScale, mmToDisplay } from "@/utils/units";
+import {
+  calculateEditorScale,
+  calculateSourcePpi,
+  mmToDisplay,
+} from "@/utils/units";
 
 const DUPLICATE_OFFSET_MM = 6;
 
@@ -96,6 +107,13 @@ export default function EditorScreen() {
   const [isImporting, setIsImporting] = useState(false);
 
   const [activeTab, setActiveTab] = useState<EditorTab>("canvas");
+
+  /**
+   * Inline rename state for the project name in the header. `null`
+   * means not currently editing; a string is the in-progress draft
+   * text, committed (normalized + saved) on submit/blur.
+   */
+  const [nameDraft, setNameDraft] = useState<string | null>(null);
 
   /**
    * Temporary reference guide while the user is still dragging
@@ -751,6 +769,48 @@ export default function EditorScreen() {
   }
 
   // ============================================================
+  // PROJECT NAME
+  // ============================================================
+
+  function handleStartRenaming() {
+    if (!project) {
+      return;
+    }
+
+    setNameDraft(project.name);
+  }
+
+  function handleCommitRename() {
+    if (!project || nameDraft === null) {
+      return;
+    }
+
+    const normalized = normalizeProjectName(nameDraft);
+
+    setNameDraft(null);
+
+    if (normalized === project.name) {
+      return;
+    }
+
+    const updatedProject: StickerProject = {
+      ...project,
+
+      name: normalized,
+
+      updatedAt: Date.now(),
+    };
+
+    setProject(updatedProject);
+
+    saveProject(updatedProject).catch(() => {});
+  }
+
+  function handleCancelRename() {
+    setNameDraft(null);
+  }
+
+  // ============================================================
   // CANVAS SETTINGS
   // ============================================================
 
@@ -1222,9 +1282,30 @@ export default function EditorScreen() {
           </TouchableOpacity>
 
           <View style={styles.projectInfo}>
-            <Text style={styles.projectName} numberOfLines={1}>
-              {project.name}
-            </Text>
+            {nameDraft !== null ? (
+              <TextInput
+                style={styles.projectNameInput}
+                value={nameDraft}
+                onChangeText={setNameDraft}
+                onSubmitEditing={handleCommitRename}
+                onBlur={handleCommitRename}
+                onKeyPress={(event) => {
+                  if (event.nativeEvent.key === "Escape") {
+                    handleCancelRename();
+                  }
+                }}
+                autoFocus
+                selectTextOnFocus
+                maxLength={PROJECT_NAME_MAX_LENGTH}
+                returnKeyType="done"
+              />
+            ) : (
+              <TouchableOpacity onPress={handleStartRenaming}>
+                <Text style={styles.projectName} numberOfLines={1}>
+                  {project.name}
+                </Text>
+              </TouchableOpacity>
+            )}
 
             <Text style={styles.projectMeta}>
               {project.canvas.widthMm}×{project.canvas.heightMm}
@@ -1385,6 +1466,13 @@ export default function EditorScreen() {
                     ]}
                   />
                 )}
+
+                {/* Decorative page outline only — an absolute overlay
+                    so it never shifts the mm=0 content origin above. */}
+                <View
+                  pointerEvents="none"
+                  style={styles.printCanvasBorder}
+                />
               </View>
             </View>
           </View>
@@ -1401,25 +1489,11 @@ export default function EditorScreen() {
             mm
           </Text>
 
-          <View
-            style={{
-              flexDirection: "row",
-
-              alignItems: "center",
-
-              gap: 12,
-            }}
-          >
-            <Text style={styles.canvasInfoBadge}>
-              {transparent ? "TRANSPARENT" : "SOLID"}
-            </Text>
-
-            {objectCount > 0 && (
-              <TouchableOpacity onPress={handlePreview}>
-                <Text style={styles.canvasInfoBadge}>PREVIEW →</Text>
-              </TouchableOpacity>
-            )}
-          </View>
+          {objectCount > 0 && (
+            <TouchableOpacity onPress={handlePreview}>
+              <Text style={styles.canvasInfoBadge}>PREVIEW →</Text>
+            </TouchableOpacity>
+          )}
         </View>
 
         {/* =====================================================
@@ -1429,6 +1503,37 @@ export default function EditorScreen() {
             background-removal processing pipeline has not been
             implemented yet.
         ====================================================== */}
+
+        {selectedStickerId && activeSticker && (
+          <View style={styles.selectionInfoRow}>
+            <Text style={styles.selectionInfoText}>
+              {(() => {
+                const ppi = calculateSourcePpi(
+                  activeSticker.originalWidthPx,
+                  activeSticker.widthMm,
+                );
+
+                if (ppi === null) {
+                  return "Resolution: —";
+                }
+
+                const low = ppi < LOW_PPI_WARNING_THRESHOLD;
+
+                return (
+                  <Text
+                    style={low ? styles.selectionInfoTextWarning : undefined}
+                  >
+                    Resolution: {Math.round(ppi)} PPI{low ? " · LOW" : ""}
+                  </Text>
+                );
+              })()}
+            </Text>
+
+            <Text style={styles.selectionInfoText}>
+              Background: {activeSticker.backgroundRemoved ? "Removed" : "Original"}
+            </Text>
+          </View>
+        )}
 
         {selectedStickerId && activeSticker && (
           <View style={styles.selectionActionsRow}>

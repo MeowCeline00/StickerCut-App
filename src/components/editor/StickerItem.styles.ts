@@ -69,44 +69,42 @@ export const styles = StyleSheet.create({
     backgroundColor: Colors.accentBright,
   },
 
+  // Compact readout positioned just outside the selection box's top
+  // edge (CRITICAL FIX 5) — small enough, and far enough outside the
+  // artwork bounds, that it never covers the sticker's own content,
+  // even when the sticker itself is small.
   dimensionLabel: {
     position: "absolute",
-    bottom: -30,
+    top: -20,
     left: 0,
     right: 0,
+    flexDirection: "row",
+    justifyContent: "center",
     alignItems: "center",
-    gap: 3,
+    gap: 4,
   },
 
   dimensionLabelText: {
     color: Colors.accentBright,
-    fontSize: 10,
+    fontSize: 9,
     fontWeight: "700",
     backgroundColor: Colors.background,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: 3,
     overflow: "hidden",
   },
 
-  // Flags a sticker whose source image is being stretched past a
-  // print-safe resolution (see LOW_PPI_WARNING_THRESHOLD).
-  dimensionLabelWarning: {
-    color: Colors.danger,
-  },
-
-  // Honest, always-visible readout of whether background removal
-  // has actually run on this sticker (it hasn't, yet — see the
-  // phase report). Muted on purpose so it doesn't compete with the
-  // dimension/PPI readout above it.
-  backgroundBadgeText: {
+  // Tiny secondary indicator, only shown when the sticker is actually
+  // rotated — muted so it doesn't compete with the size readout.
+  rotationLabelText: {
     color: Colors.textSecondary,
-    fontSize: 9,
+    fontSize: 8,
     fontWeight: "600",
     backgroundColor: Colors.background,
-    paddingHorizontal: 6,
+    paddingHorizontal: 4,
     paddingVertical: 1,
-    borderRadius: 4,
+    borderRadius: 3,
     overflow: "hidden",
   },
 

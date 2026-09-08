@@ -17,6 +17,10 @@ import {
 } from "@/utils/rulerTicks";
 
 import {
+  RULER_SIZE_PX,
+} from "@/constants/editor-layout";
+
+import {
   styles,
 } from "./CanvasRuler.styles";
 
@@ -178,7 +182,7 @@ export function CanvasRuler({
                   editorScale,
 
                 height:
-                  22,
+                  RULER_SIZE_PX,
               }
             : {
                 height:
@@ -186,7 +190,7 @@ export function CanvasRuler({
                   editorScale,
 
                 width:
-                  22,
+                  RULER_SIZE_PX,
               },
         ]}
       >
