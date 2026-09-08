@@ -30,7 +30,11 @@ yarn-error.*
 .DS_Store
 *.pem
 
-# local env files
+# local env files — .env holds EXPO_PUBLIC_BACKEND_URL, which is not
+# secret (see src/config/api.ts), but it's still machine-specific (a
+# LAN IP for physical-device testing, say), so it stays local rather
+# than committed. .env.example documents the variable for everyone.
+.env
 .env*.local
 
 # typescript

@@ -191,6 +191,82 @@ export function saveClipboardImageToAppStorage(
   return destination.uri;
 }
 
+const PROCESSED_IMAGES_SUBDIRECTORY_NAME =
+  "processed";
+
+/**
+ * Subfolder of the main stickers directory, dedicated to generated
+ * derivatives (currently: Remove BG output) as opposed to the
+ * user's own imported/pasted originals. Keeping them apart makes it
+ * obvious on disk which files are safe to regenerate/delete and
+ * which are the user's real source images.
+ */
+function getProcessedImagesDirectory(): Directory {
+  const directory =
+    new Directory(
+      getStickersDirectory(),
+      PROCESSED_IMAGES_SUBDIRECTORY_NAME,
+    );
+
+  if (!directory.exists) {
+    directory.create({
+      intermediates: true,
+    });
+  }
+
+  return directory;
+}
+
+/**
+ * Persists raw bytes already in memory (e.g. an HTTP response body,
+ * such as the background-removal backend's transparent PNG) into
+ * app-owned persistent storage, reusing the same Directory/File/
+ * unique-naming conventions as saveImageToAppStorage above rather
+ * than inventing a second storage scheme.
+ */
+export function saveProcessedImageToAppStorage(
+  bytes: Uint8Array,
+  extension = "png",
+): string {
+  const directory =
+    getProcessedImagesDirectory();
+
+  const destination =
+    new File(
+      directory,
+      createUniqueName(
+        extension,
+      ),
+    );
+
+  destination.write(
+    bytes,
+  );
+
+  return destination.uri;
+}
+
+/**
+ * Best-effort delete of a previously processed image (e.g. Revert
+ * discarding a Remove BG result). Never throws — a failed cleanup
+ * must not block the user's revert action — and this only ever
+ * touches a `processedUri` the caller passes in, never sourceUri.
+ */
+export function deleteProcessedImage(
+  uri: string,
+): void {
+  try {
+    const file =
+      new File(uri);
+
+    if (file.exists) {
+      file.delete();
+    }
+  } catch {
+    // Best-effort cleanup only.
+  }
+}
+
 /**
  * Convert relative HTML URLs into absolute URLs.
  */

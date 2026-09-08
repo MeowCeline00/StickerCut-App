@@ -2,34 +2,18 @@
 //
 // StickerObject already models this correctly (sourceUri is never
 // overwritten; processedUri + backgroundRemoved carry the result), and
-// the Remove BG button in editor.tsx is wired to call this function —
-// but the function itself does not yet actually process pixels.
+// the Remove BG button in editor.tsx is wired to call this function.
 //
-// WHY: producing a real transparent PNG from an arbitrary photo needs
-// image segmentation (separating foreground subject from background).
-// That is not something Expo's managed workflow / React Native can do
-// on-device out of the box:
-//   - There's no bundled on-device segmentation model in this project,
-//     and adding one (e.g. via TensorFlow Lite / a custom native
-//     module) requires leaving the managed Expo workflow for a custom
-//     dev client — a real architecture decision, not a small tweak.
-//   - The practical alternative is a REMOTE segmentation API (e.g. a
-//     hosted background-removal service, or a model served from your
-//     own backend). That needs:
-//       1. A server-side endpoint YOU control that holds the actual
-//          API key and proxies the request — never ship a third-party
-//          API secret inside the client app.
-//       2. Uploading the source image to that endpoint and receiving
-//          back a transparent PNG (or its bytes).
-//       3. Saving that PNG into this app's own persistent storage
-//          (see src/utils/imageStorage.ts, which already has the
-//          pattern createStickerFromImportedImage uses for sourceUri)
-//          so it survives project reopen.
-//
-// Until that backend piece exists, this function deliberately THROWS
-// rather than returning a fake "success" — see BackgroundRemovalUnavailableError.
-// editor.tsx's handleRemoveBackground catches this and shows the user
-// an honest message instead of marking backgroundRemoved: true.
+// This calls a local, free background-removal backend (backend/, a
+// FastAPI + rembg server you run on your own machine — see
+// backend/README.md for setup). No paid API, no API key ships in this
+// app: the backend does the actual processing entirely on your own
+// computer, and this function just uploads the source image to it and
+// saves back whatever transparent PNG it returns.
+
+import { API_CONFIG } from "@/config/api";
+import { getImageDimensions } from "@/utils/imageDimensions";
+import { saveProcessedImageToAppStorage } from "@/utils/imageStorage";
 
 export interface RemoveBackgroundResult {
   uri: string;
@@ -38,34 +22,115 @@ export interface RemoveBackgroundResult {
 }
 
 export class BackgroundRemovalUnavailableError extends Error {
-  constructor() {
-    super(
-      "Background removal needs a server-side segmentation service " +
-        "that isn't connected yet. A production build would upload " +
-        "the image to your own backend (which holds the actual " +
-        "provider API key) and save the returned transparent PNG " +
-        "locally — see src/image/removeBackground.ts for details.",
-    );
-
+  constructor(message: string) {
+    super(message);
     this.name = "BackgroundRemovalUnavailableError";
   }
 }
 
+function inferUploadMimeType(uri: string): string {
+  const cleanUri = uri.split("?")[0];
+  const match = /\.([a-zA-Z0-9]+)$/.exec(cleanUri);
+  const extension = match?.[1]?.toLowerCase();
+
+  switch (extension) {
+    case "png":
+      return "image/png";
+    case "jpg":
+    case "jpeg":
+      return "image/jpeg";
+    case "webp":
+      return "image/webp";
+    case "heic":
+      return "image/heic";
+    case "heif":
+      return "image/heif";
+    default:
+      // rembg/PIL can generally sniff the real format from content, and
+      // the backend also validates the actual bytes — this is just a
+      // reasonable multipart Content-Type when the extension is
+      // ambiguous or missing.
+      return "image/jpeg";
+  }
+}
+
 /**
- * Attempts to remove the background from the image at `sourceUri` and
- * return a transparent PNG.
+ * Attempts to remove the background from the image at `sourceUri` by
+ * uploading it to the local background-removal backend (see backend/),
+ * and saves the returned transparent PNG into app-owned persistent
+ * storage.
  *
- * NOT YET IMPLEMENTED — always rejects with
- * BackgroundRemovalUnavailableError. This function exists so the UI
- * (the Remove BG button, its loading state, and its error handling)
- * is already correctly wired: turning background removal on in the
- * future should only require replacing this function's body with a
- * real network call, with no editor.tsx changes needed.
+ * Throws BackgroundRemovalUnavailableError with a user-facing message
+ * on any failure (backend not running, network issue, unsupported
+ * image, server-side processing error) — never returns a fake result.
  */
 export async function removeImageBackground(
   sourceUri: string,
 ): Promise<RemoveBackgroundResult> {
-  void sourceUri;
+  const mimeType = inferUploadMimeType(sourceUri);
 
-  throw new BackgroundRemovalUnavailableError();
+  const formData = new FormData();
+  // React Native's FormData accepts a { uri, name, type } object in
+  // place of a web File/Blob (which don't exist in this environment) —
+  // this is the standard RN upload pattern. TypeScript's DOM lib types
+  // FormData.append's second argument as string | Blob, so this needs
+  // a cast; the object shape itself is what React Native's networking
+  // layer actually expects at runtime.
+  formData.append("image", {
+    uri: sourceUri,
+    name: `upload.${mimeType.split("/")[1] ?? "jpg"}`,
+    type: mimeType,
+  } as unknown as Blob);
+
+  let response: Response;
+  try {
+    // Deliberately NOT setting a Content-Type header: fetch/FormData
+    // needs to generate the multipart boundary itself, and manually
+    // setting it (e.g. to "multipart/form-data") breaks the boundary
+    // and the backend won't be able to parse the upload.
+    response = await fetch(`${API_CONFIG.backendUrl}/remove-bg`, {
+      method: "POST",
+      body: formData,
+    });
+  } catch {
+    throw new BackgroundRemovalUnavailableError(
+      "Could not connect to the background-removal service. Make sure " +
+        "the local backend is running (see backend/README.md) and that " +
+        "EXPO_PUBLIC_BACKEND_URL in your .env points at it.",
+    );
+  }
+
+  if (!response.ok) {
+    if (response.status === 400) {
+      throw new BackgroundRemovalUnavailableError(
+        "This image couldn't be processed. Try a different photo.",
+      );
+    }
+
+    throw new BackgroundRemovalUnavailableError(
+      "The background-removal service ran into a problem processing " +
+        "this image. Please try again.",
+    );
+  }
+
+  let bytes: Uint8Array;
+  try {
+    const buffer = await response.arrayBuffer();
+    bytes = new Uint8Array(buffer);
+  } catch {
+    throw new BackgroundRemovalUnavailableError(
+      "The background-removal service returned an unreadable response.",
+    );
+  }
+
+  if (bytes.byteLength === 0) {
+    throw new BackgroundRemovalUnavailableError(
+      "The background-removal service returned an empty result.",
+    );
+  }
+
+  const uri = saveProcessedImageToAppStorage(bytes, "png");
+  const { width, height } = await getImageDimensions(uri);
+
+  return { uri, width, height };
 }

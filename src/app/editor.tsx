@@ -74,6 +74,8 @@ import { createId } from "@/utils/ids";
 
 import { getImageDimensions } from "@/utils/imageDimensions";
 
+import { deleteProcessedImage } from "@/utils/imageStorage";
+
 import {
   computeDefaultStickerSizeMm,
   getNextZIndex,
@@ -453,6 +455,17 @@ export default function EditorScreen() {
           return sticker;
         }
 
+        /**
+         * Best-effort cleanup of the now-discarded Remove BG output.
+         * sourceUri is never touched here (see below), and
+         * processedUri is unique per generation and never shared
+         * between stickers, so deleting it is safe. Never throws —
+         * see deleteProcessedImage's own doc comment.
+         */
+        if (sticker.processedUri) {
+          deleteProcessedImage(sticker.processedUri);
+        }
+
         const sourceWidth = sticker.originalWidthPx;
 
         const sourceHeight = sticker.originalHeightPx;
@@ -571,7 +584,7 @@ export default function EditorScreen() {
       });
     } catch (error) {
       Alert.alert(
-        "Remove BG isn't available yet",
+        "Remove BG failed",
         error instanceof Error
           ? error.message
           : "Background removal could not run.",
@@ -1915,23 +1928,42 @@ export default function EditorScreen() {
                     },
                   ]}
                 >
-                  {CANVAS_COLOR_SWATCHES.map((swatch) => (
-                    <TouchableOpacity
-                      key={swatch.id}
-                      accessibilityLabel={swatch.id}
-                      onPress={() => handleSetCanvasColor(swatch.value)}
-                      style={[
-                        styles.colorSwatch,
+                  {CANVAS_COLOR_SWATCHES.map((swatch) => {
+                    /**
+                     * IMPORTANT: read swatch.value into a plain local
+                     * BEFORE the style prop, not inline inside it.
+                     * Reanimated's babel plugin (applied project-wide
+                     * via babel-preset-expo) statically instruments any
+                     * `something.value` MemberExpression written inside
+                     * a `style={...}` prop with its "you might be using
+                     * a shared value's .value inside an inline style"
+                     * runtime warning — it can't tell `swatch.value`
+                     * (a plain CanvasColorSwatch field, unrelated to
+                     * Reanimated) apart from an actual SharedValue.
+                     * Moving the read outside the style prop's AST
+                     * entirely avoids the false-positive warning
+                     * without changing any behavior.
+                     */
+                    const swatchColor = swatch.value;
 
-                        {
-                          backgroundColor: swatch.value,
-                        },
+                    return (
+                      <TouchableOpacity
+                        key={swatch.id}
+                        accessibilityLabel={swatch.id}
+                        onPress={() => handleSetCanvasColor(swatchColor)}
+                        style={[
+                          styles.colorSwatch,
 
-                        canvasColor === swatch.value &&
-                          styles.colorSwatchSelected,
-                      ]}
-                    />
-                  ))}
+                          {
+                            backgroundColor: swatchColor,
+                          },
+
+                          canvasColor === swatchColor &&
+                            styles.colorSwatchSelected,
+                        ]}
+                      />
+                    );
+                  })}
                 </View>
               </View>
             )}
@@ -2178,17 +2210,21 @@ export default function EditorScreen() {
                       const selectedColor =
                         activeSticker.cutLine.color ?? DEFAULT_CUT_LINE_COLOR;
 
-                      const selected = selectedColor === swatch.value;
+                      // See the CANVAS_COLOR_SWATCHES map above for why
+                      // this is pulled out of the style prop.
+                      const swatchColor = swatch.value;
+
+                      const selected = selectedColor === swatchColor;
 
                       return (
                         <TouchableOpacity
                           key={swatch.id}
-                          onPress={() => handleSetCutLineColor(swatch.value)}
+                          onPress={() => handleSetCutLineColor(swatchColor)}
                           style={[
                             styles.colorSwatch,
 
                             {
-                              backgroundColor: swatch.value,
+                              backgroundColor: swatchColor,
                             },
 
                             selected && styles.colorSwatchSelected,

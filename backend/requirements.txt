@@ -1,0 +1,17 @@
+# StickerCut local background-removal backend.
+#
+# rembg[cpu] is the officially supported current install method — plain
+# `pip install rembg` fails at runtime with "No onnxruntime backend found"
+# because onnxruntime is an extra, not a base dependency. The [cpu] extra
+# pulls in onnxruntime + pillow + numpy automatically, so they are not
+# pinned separately here.
+#
+# Verified working versions as of this writing: rembg 2.0.84, onnxruntime
+# 1.29.0 (installed transitively). If a newer rembg changes this, just
+# `pip install --upgrade "rembg[cpu]"` — nothing else in this file depends
+# on exact versions.
+rembg[cpu]
+
+fastapi
+uvicorn[standard]
+python-multipart
