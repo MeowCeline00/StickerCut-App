@@ -1,113 +1,454 @@
-import { Directory, File, Paths } from "expo-file-system";
+import {
+  Directory,
+  File,
+  Paths,
+} from "expo-file-system";
 
-import { base64ToUint8Array } from "@/utils/base64";
+import {
+  base64ToUint8Array,
+} from "@/utils/base64";
 
-// Sticker images are copied out of the OS photo library into a
-// folder StickerCut owns permanently. The picker's original URI
-// points at a temporary OS-managed location that is not
-// guaranteed to remain valid after this session, so nothing
-// durable (a saved project) should ever reference it directly.
-const STICKERS_DIRECTORY_NAME = "stickercut-images";
+const STICKERS_DIRECTORY_NAME =
+  "stickercut-images";
 
 function getStickersDirectory(): Directory {
-  const directory = new Directory(Paths.document, STICKERS_DIRECTORY_NAME);
+  const directory =
+    new Directory(
+      Paths.document,
+      STICKERS_DIRECTORY_NAME,
+    );
 
   if (!directory.exists) {
-    directory.create({ intermediates: true });
+    directory.create({
+      intermediates: true,
+    });
   }
 
   return directory;
 }
 
-function inferExtension(uri: string, fileName?: string | null): string {
-  const nameToCheck = fileName ?? uri;
-  const match = /\.([a-zA-Z0-9]+)(?:\?.*)?$/.exec(nameToCheck);
+function createUniqueName(
+  extension: string,
+): string {
+  const safeExtension =
+    extension
+      .replace(/[^a-zA-Z0-9]/g, "")
+      .toLowerCase() || "png";
 
-  return match ? match[1].toLowerCase() : "jpg";
+  return `sticker_${Date.now()}_${Math.random()
+    .toString(36)
+    .slice(2, 8)}.${safeExtension}`;
+}
+
+function inferExtensionFromMime(
+  mimeType: string | null,
+): string {
+  const mime =
+    mimeType
+      ?.toLowerCase()
+      .split(";")[0]
+      .trim();
+
+  switch (mime) {
+    case "image/png":
+      return "png";
+
+    case "image/jpeg":
+    case "image/jpg":
+      return "jpg";
+
+    case "image/webp":
+      return "webp";
+
+    case "image/gif":
+      return "gif";
+
+    case "image/heic":
+    case "image/heif":
+      return "heic";
+
+    default:
+      return "png";
+  }
+}
+
+function inferExtension(
+  uri: string,
+  fileName?: string | null,
+): string {
+  const source =
+    fileName ?? uri;
+
+  const cleanSource =
+    source.split("?")[0];
+
+  const match =
+    /\.([a-zA-Z0-9]+)$/.exec(
+      cleanSource,
+    );
+
+  if (!match) {
+    return "png";
+  }
+
+  const extension =
+    match[1].toLowerCase();
+
+  if (
+    [
+      "png",
+      "jpg",
+      "jpeg",
+      "webp",
+      "gif",
+      "heic",
+      "heif",
+    ].includes(extension)
+  ) {
+    return extension;
+  }
+
+  return "png";
 }
 
 /**
- * Copies a picked image into StickerCut's own persistent storage
- * and returns the new, stable file:// URI. AsyncStorage (via
- * projectStorage.ts) only ever stores this URI string as part of
- * the project's JSON metadata — the actual pixel data lives on
- * disk, never as a Base64 blob in AsyncStorage.
+ * Copy Photos / Files imports into app-owned storage.
  */
 export async function saveImageToAppStorage(
   sourceUri: string,
   fileName?: string | null,
 ): Promise<string> {
-  const directory = getStickersDirectory();
-  const extension = inferExtension(sourceUri, fileName);
-  const uniqueName = `sticker_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${extension}`;
-  const destination = new File(directory, uniqueName);
+  const directory =
+    getStickersDirectory();
 
-  const source = new File(sourceUri);
-  await source.copy(destination);
+  const extension =
+    inferExtension(
+      sourceUri,
+      fileName,
+    );
 
-  return destination.uri;
-}
+  const destination =
+    new File(
+      directory,
+      createUniqueName(
+        extension,
+      ),
+    );
 
-/**
- * Persists a pasted clipboard image into StickerCut's own storage.
- *
- * expo-clipboard hands back image data as a base64-encoded data URI
- * (e.g. "data:image/png;base64,AAAA..."), not a file URI, so there
- * is nothing to File.copy() here. Instead the base64 payload is
- * decoded into raw bytes (see utils/base64.ts — Hermes has no
- * built-in `atob`, and File.write() has no base64 option) and
- * written directly. This runs synchronously, matching
- * File.write()'s own sync signature.
- */
-export function saveClipboardImageToAppStorage(dataUri: string): string {
-  const match = /^data:image\/([a-zA-Z0-9.+-]+);base64,(.+)$/.exec(dataUri);
-  const extension = match ? match[1].toLowerCase() : "png";
-  const base64Payload = match ? match[2] : dataUri;
+  const source =
+    new File(sourceUri);
 
-  const bytes = base64ToUint8Array(base64Payload);
-
-  const directory = getStickersDirectory();
-  const uniqueName = `sticker_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${extension}`;
-  const destination = new File(directory, uniqueName);
-
-  destination.write(bytes);
+  await source.copy(
+    destination,
+  );
 
   return destination.uri;
 }
 
 /**
- * Downloads an image from a URL (e.g. a link the user copied from
- * a browser and pasted) directly into StickerCut's own storage.
- *
- * This is a plain, user-initiated download: StickerCut fetches
- * exactly the link the user pasted, from that link's own host —
- * nothing about the user or their device is sent anywhere else in
- * the process. Requires the device to be online.
- *
- * File.downloadFileAsync() names the file from the response
- * headers/URL when given a directory, so the extension and MIME
- * type are whatever the server actually reports — which is also
- * how this function tells a real image apart from a link that
- * happens to look like one but points at an HTML page or an error
- * response instead.
+ * Save an actual clipboard image returned as Base64.
  */
-export async function downloadImageToAppStorage(url: string): Promise<File> {
-  const directory = getStickersDirectory();
-  const file = await File.downloadFileAsync(url, directory);
+export function saveClipboardImageToAppStorage(
+  dataUri: string,
+): string {
+  const match =
+    /^data:image\/([a-zA-Z0-9.+-]+);base64,(.+)$/.exec(
+      dataUri,
+    );
 
-  const looksLikeImage =
-    file.type?.toLowerCase().startsWith("image/") ?? /\.(png|jpe?g|gif|webp|bmp|heic)$/i.test(file.uri);
+  const extension =
+    match
+      ? inferExtensionFromMime(
+          `image/${match[1]}`,
+        )
+      : "png";
 
-  if (!looksLikeImage) {
-    try {
-      file.delete();
-    } catch {
-      // Best-effort cleanup only — an orphaned non-image file in
-      // our own storage folder is harmless clutter, not a bug.
+  const payload =
+    match
+      ? match[2]
+      : dataUri;
+
+  const bytes =
+    base64ToUint8Array(
+      payload,
+    );
+
+  const directory =
+    getStickersDirectory();
+
+  const destination =
+    new File(
+      directory,
+      createUniqueName(
+        extension,
+      ),
+    );
+
+  destination.write(
+    bytes,
+  );
+
+  return destination.uri;
+}
+
+/**
+ * Convert relative HTML URLs into absolute URLs.
+ */
+function resolveUrl(
+  value: string,
+  baseUrl: string,
+): string | null {
+  try {
+    return new URL(
+      value,
+      baseUrl,
+    ).toString();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Try to find a representative image inside an HTML page.
+ *
+ * This handles the common case where "Copy link" copies a PAGE URL
+ * instead of the final image CDN URL.
+ *
+ * Order:
+ * 1. og:image
+ * 2. twitter:image
+ * 3. first <img src>
+ */
+function findImageUrlInHtml(
+  html: string,
+  pageUrl: string,
+): string | null {
+  const patterns = [
+    /<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i,
+
+    /<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i,
+
+    /<meta[^>]+name=["']twitter:image(?::src)?["'][^>]+content=["']([^"']+)["']/i,
+
+    /<meta[^>]+content=["']([^"']+)["'][^>]+name=["']twitter:image(?::src)?["']/i,
+
+    /<img[^>]+src=["']([^"']+)["']/i,
+  ];
+
+  for (const pattern of patterns) {
+    const match =
+      pattern.exec(html);
+
+    if (
+      match?.[1]
+    ) {
+      const resolved =
+        resolveUrl(
+          match[1],
+          pageUrl,
+        );
+
+      if (resolved) {
+        return resolved;
+      }
     }
-
-    throw new Error("The linked file is not an image.");
   }
 
-  return file;
+  return null;
+}
+
+/**
+ * Download raw image bytes with fetch().
+ *
+ * This is more reliable than relying only on the URL's filename,
+ * because many image CDN URLs contain no .png/.jpg extension.
+ */
+async function fetchImageFile(
+  url: string,
+): Promise<File> {
+  const response =
+    await fetch(url, {
+      headers: {
+        Accept:
+          "image/avif,image/webp,image/png,image/jpeg,image/*,*/*;q=0.8",
+      },
+    });
+
+  if (!response.ok) {
+    throw new Error(
+      `Image request failed (${response.status}).`,
+    );
+  }
+
+  const contentType =
+    response.headers.get(
+      "content-type",
+    );
+
+  if (
+    !contentType
+      ?.toLowerCase()
+      .startsWith("image/")
+  ) {
+    throw new Error(
+      "URL did not return image data.",
+    );
+  }
+
+  const buffer =
+    await response.arrayBuffer();
+
+  const bytes =
+    new Uint8Array(
+      buffer,
+    );
+
+  const extension =
+    inferExtensionFromMime(
+      contentType,
+    );
+
+  const directory =
+    getStickersDirectory();
+
+  const destination =
+    new File(
+      directory,
+      createUniqueName(
+        extension,
+      ),
+    );
+
+  destination.write(
+    bytes,
+  );
+
+  return destination;
+}
+
+/**
+ * Paste-link import.
+ *
+ * Supports BOTH:
+ *
+ * direct image URL
+ *      ↓
+ * image bytes
+ *
+ * webpage URL
+ *      ↓
+ * HTML
+ *      ↓
+ * og:image / twitter:image / <img>
+ *      ↓
+ * image bytes
+ */
+export async function downloadImageToAppStorage(
+  rawUrl: string,
+): Promise<File> {
+  const url =
+    rawUrl.trim();
+
+  if (
+    !/^https?:\/\//i.test(
+      url,
+    )
+  ) {
+    throw new Error(
+      "Clipboard text is not an HTTP image link.",
+    );
+  }
+
+  const firstResponse =
+    await fetch(url, {
+      headers: {
+        Accept:
+          "image/avif,image/webp,image/png,image/jpeg,image/*,text/html,*/*;q=0.8",
+      },
+    });
+
+  if (!firstResponse.ok) {
+    throw new Error(
+      `Link request failed (${firstResponse.status}).`,
+    );
+  }
+
+  const contentType =
+    firstResponse.headers
+      .get("content-type")
+      ?.toLowerCase() ??
+    "";
+
+  /**
+   * Best case: pasted link already points directly to an image.
+   */
+  if (
+    contentType.startsWith(
+      "image/",
+    )
+  ) {
+    const buffer =
+      await firstResponse.arrayBuffer();
+
+    const bytes =
+      new Uint8Array(
+        buffer,
+      );
+
+    const directory =
+      getStickersDirectory();
+
+    const destination =
+      new File(
+        directory,
+        createUniqueName(
+          inferExtensionFromMime(
+            contentType,
+          ),
+        ),
+      );
+
+    destination.write(
+      bytes,
+    );
+
+    return destination;
+  }
+
+  /**
+   * Otherwise treat the response as a webpage and try to discover
+   * its primary image.
+   */
+  if (
+    contentType.includes(
+      "text/html",
+    )
+  ) {
+    const html =
+      await firstResponse.text();
+
+    const finalPageUrl =
+      firstResponse.url ||
+      url;
+
+    const imageUrl =
+      findImageUrlInHtml(
+        html,
+        finalPageUrl,
+      );
+
+    if (!imageUrl) {
+      throw new Error(
+        "The pasted webpage does not expose an image StickerCut can import.",
+      );
+    }
+
+    return fetchImageFile(
+      imageUrl,
+    );
+  }
+
+  throw new Error(
+    "The pasted link does not point to an image or supported webpage.",
+  );
 }

@@ -64,7 +64,9 @@ import type {
   StickerProject,
 } from "@/types/project";
 
-import type { StickerObject } from "@/types/sticker";
+import type {
+  StickerObject,
+} from "@/types/sticker";
 
 import { createId } from "@/utils/ids";
 
@@ -121,7 +123,8 @@ export default function EditorScreen() {
   const [
     loading,
     setLoading,
-  ] = useState(true);
+  ] =
+    useState(true);
 
   const [
     selectedStickerId,
@@ -134,7 +137,8 @@ export default function EditorScreen() {
   const [
     isImporting,
     setIsImporting,
-  ] = useState(false);
+  ] =
+    useState(false);
 
   const [
     activeTab,
@@ -145,10 +149,10 @@ export default function EditorScreen() {
     );
 
   /**
-   * Temporary guide that follows the pointer while the user drags
-   * from a ruler.
+   * Temporary reference guide while the user is still dragging
+   * from one of the rulers.
    *
-   * It is NOT persisted until the drag finishes.
+   * It becomes part of project.guides only when the drag finishes.
    */
   const [
     draftGuide,
@@ -165,6 +169,10 @@ export default function EditorScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // ============================================================
+  // PROJECT INITIALISATION
+  // ============================================================
+
   async function initialiseProject() {
     if (params.projectId) {
       const existing =
@@ -173,33 +181,44 @@ export default function EditorScreen() {
         );
 
       if (existing) {
-        setProject(existing);
+        setProject(
+          existing,
+        );
+
         setLoading(false);
+
         return;
       }
     }
 
     const widthMm =
-      Number(params.widthMm) ||
-      210;
+      Number(
+        params.widthMm,
+      ) || 210;
 
     const heightMm =
-      Number(params.heightMm) ||
-      297;
+      Number(
+        params.heightMm,
+      ) || 297;
 
     const now =
       Date.now();
 
     const created: StickerProject =
       {
-        id: createId(
-          "project",
-        ),
+        id:
+          createId(
+            "project",
+          ),
 
-        name: "Untitled",
+        name:
+          "Untitled",
 
-        createdAt: now,
-        updatedAt: now,
+        createdAt:
+          now,
+
+        updatedAt:
+          now,
 
         canvas: {
           presetId:
@@ -222,22 +241,33 @@ export default function EditorScreen() {
               : "white",
         },
 
-        stickers: [],
+        stickers:
+          [],
+
+        guides:
+          [],
 
         themeId:
           params.themeId ===
             "dark" ||
           params.themeId ===
-            "pink" ||
+            "light" ||
           params.themeId ===
-            "light"
+            "pink"
             ? params.themeId
             : DEFAULT_THEME_ID,
       };
 
-    setProject(created);
+    setProject(
+      created,
+    );
+
     setLoading(false);
   }
+
+  // ============================================================
+  // SAVE / PREVIEW
+  // ============================================================
 
   async function handleSave() {
     if (!project) {
@@ -263,7 +293,7 @@ export default function EditorScreen() {
 
   /**
    * Preview reloads the project from storage, so save the current
-   * in-memory project before navigating.
+   * state before navigating.
    */
   async function handlePreview() {
     if (!project) {
@@ -277,7 +307,7 @@ export default function EditorScreen() {
     } catch {
       Alert.alert(
         "Couldn't open preview",
-        "StickerCut couldn't save this project, so Preview would show stale or missing content.",
+        "StickerCut couldn't save the current project first.",
       );
 
       return;
@@ -294,10 +324,15 @@ export default function EditorScreen() {
     });
   }
 
+  // ============================================================
+  // STICKER TRANSFORM FUNCTIONS
+  // ============================================================
+
   /**
-   * Commit a completed move gesture.
+   * Permanent sticker coordinates are stored in millimeters.
    *
-   * StickerItem reports physical movement in millimeters.
+   * StickerItem performs the live display movement and reports only
+   * the final physical delta when the gesture ends.
    */
   function handleStickerMove(
     id: string,
@@ -322,7 +357,8 @@ export default function EditorScreen() {
           project.stickers.map(
             (sticker) => {
               if (
-                sticker.id !== id
+                sticker.id !==
+                id
               ) {
                 return sticker;
               }
@@ -364,16 +400,9 @@ export default function EditorScreen() {
 
     saveProject(
       updatedProject,
-    ).catch(() => {
-      /**
-       * Manual Save remains available if autosave fails.
-       */
-    });
+    ).catch(() => {});
   }
 
-  /**
-   * Commit a completed resize gesture.
-   */
   function handleStickerResize(
     id: string,
 
@@ -404,7 +433,8 @@ export default function EditorScreen() {
           project.stickers.map(
             (sticker) => {
               if (
-                sticker.id !== id
+                sticker.id !==
+                id
               ) {
                 return sticker;
               }
@@ -468,9 +498,6 @@ export default function EditorScreen() {
     ).catch(() => {});
   }
 
-  /**
-   * Commit a completed rotation gesture.
-   */
   function handleStickerRotate(
     id: string,
     deltaDegrees: number,
@@ -488,23 +515,30 @@ export default function EditorScreen() {
 
         stickers:
           project.stickers.map(
-            (sticker) =>
-              sticker.id === id
-                ? {
-                    ...sticker,
+            (sticker) => {
+              if (
+                sticker.id !==
+                id
+              ) {
+                return sticker;
+              }
 
-                    rotation:
-                      (
-                        (
-                          sticker.rotation +
-                          deltaDegrees
-                        ) %
-                          360 +
-                        360
-                      ) %
-                      360,
-                  }
-                : sticker,
+              const rotation =
+                (
+                  (
+                    sticker.rotation +
+                    deltaDegrees
+                  ) %
+                    360 +
+                  360
+                ) %
+                360;
+
+              return {
+                ...sticker,
+                rotation,
+              };
+            },
           ),
       };
 
@@ -557,7 +591,7 @@ export default function EditorScreen() {
   }
 
   /**
-   * Reset selected sticker to its default imported size and zero rotation.
+   * Reset size/rotation but keep the sticker's current position.
    */
   function handleRevertSelected() {
     if (
@@ -581,27 +615,68 @@ export default function EditorScreen() {
                 return sticker;
               }
 
+              const sourceWidth =
+                sticker.originalWidthPx;
+
+              const sourceHeight =
+                sticker.originalHeightPx;
+
+              if (
+                !sourceWidth ||
+                !sourceHeight
+              ) {
+                return {
+                  ...sticker,
+
+                  rotation:
+                    0,
+
+                  aspectLocked:
+                    true,
+                };
+              }
+
               const {
                 widthMm,
                 heightMm,
               } =
                 computeDefaultStickerSizeMm(
-                  sticker.originalWidthPx ??
-                    sticker.widthMm,
+                  sourceWidth,
+                  sourceHeight,
+                );
 
-                  sticker.originalHeightPx ??
-                    sticker.heightMm,
+              const clamped =
+                clampStickerPositionMm(
+                  sticker.xMm,
+                  sticker.yMm,
+
+                  widthMm,
+                  heightMm,
+
+                  project.canvas
+                    .widthMm,
+
+                  project.canvas
+                    .heightMm,
                 );
 
               return {
                 ...sticker,
 
+                xMm:
+                  clamped.xMm,
+
+                yMm:
+                  clamped.yMm,
+
                 widthMm,
                 heightMm,
 
-                rotation: 0,
+                rotation:
+                  0,
 
-                aspectLocked: true,
+                aspectLocked:
+                  true,
               };
             },
           ),
@@ -615,6 +690,169 @@ export default function EditorScreen() {
       updatedProject,
     ).catch(() => {});
   }
+
+  // ============================================================
+  // DUPLICATE / DELETE
+  // ============================================================
+
+  async function commitNewStickers(
+    newStickers:
+      StickerObject[],
+  ) {
+    if (
+      !project ||
+      newStickers.length ===
+        0
+    ) {
+      return;
+    }
+
+    /**
+     * Existing stickers remain untouched.
+     *
+     * New stickers are appended so importing B never removes A.
+     */
+    const updatedProject: StickerProject =
+      {
+        ...project,
+
+        stickers: [
+          ...project.stickers,
+          ...newStickers,
+        ],
+      };
+
+    setProject(
+      updatedProject,
+    );
+
+    setSelectedStickerId(
+      newStickers[
+        newStickers.length -
+          1
+      ].id,
+    );
+
+    try {
+      await saveProject(
+        updatedProject,
+      );
+    } catch {
+      /**
+       * Manual Save remains available if autosave fails.
+       */
+    }
+  }
+
+  function handleDuplicateSticker(
+    id: string,
+  ) {
+    if (!project) {
+      return;
+    }
+
+    const source =
+      project.stickers.find(
+        (sticker) =>
+          sticker.id === id,
+      );
+
+    if (!source) {
+      return;
+    }
+
+    const maxX =
+      Math.max(
+        0,
+
+        project.canvas
+          .widthMm -
+          source.widthMm,
+      );
+
+    const maxY =
+      Math.max(
+        0,
+
+        project.canvas
+          .heightMm -
+          source.heightMm,
+      );
+
+    const duplicate: StickerObject =
+      {
+        ...source,
+
+        id:
+          createId(
+            "sticker",
+          ),
+
+        xMm:
+          Math.min(
+            source.xMm +
+              DUPLICATE_OFFSET_MM,
+
+            maxX,
+          ),
+
+        yMm:
+          Math.min(
+            source.yMm +
+              DUPLICATE_OFFSET_MM,
+
+            maxY,
+          ),
+
+        zIndex:
+          getNextZIndex(
+            project.stickers,
+          ),
+      };
+
+    void commitNewStickers([
+      duplicate,
+    ]);
+  }
+
+  function handleDeleteSticker(
+    id: string,
+  ) {
+    if (!project) {
+      return;
+    }
+
+    const updatedProject: StickerProject =
+      {
+        ...project,
+
+        stickers:
+          project.stickers.filter(
+            (sticker) =>
+              sticker.id !==
+              id,
+          ),
+      };
+
+    setSelectedStickerId(
+      (current) =>
+        current === id
+          ? null
+          : current,
+    );
+
+    setProject(
+      updatedProject,
+    );
+
+    saveProject(
+      updatedProject,
+    ).catch(() => {});
+  }
+
+  // ============================================================
+  // CUT-LINE PREVIEW SETTINGS
+  // ============================================================
 
   function handleSetCutLineShape(
     shape:
@@ -697,169 +935,50 @@ export default function EditorScreen() {
     ).catch(() => {});
   }
 
-  /**
-   * Add new stickers without replacing existing ones.
-   */
-  async function commitNewStickers(
-    newStickers: StickerObject[],
-  ) {
-    if (
-      !project ||
-      newStickers.length === 0
-    ) {
-      return;
-    }
-
-    const updatedProject: StickerProject =
-      {
-        ...project,
-
-        stickers: [
-          ...project.stickers,
-          ...newStickers,
-        ],
-      };
-
-    setProject(
-      updatedProject,
-    );
-
-    setSelectedStickerId(
-      newStickers[
-        newStickers.length -
-          1
-      ].id,
-    );
-
-    try {
-      await saveProject(
-        updatedProject,
-      );
-    } catch {
-      /**
-       * Manual Save is still available.
-       */
-    }
-  }
-
-  function handleDuplicateSticker(
-    id: string,
-  ) {
-    if (!project) {
-      return;
-    }
-
-    const source =
-      project.stickers.find(
-        (sticker) =>
-          sticker.id === id,
-      );
-
-    if (!source) {
-      return;
-    }
-
-    const duplicate: StickerObject =
-      {
-        ...source,
-
-        id: createId(
-          "sticker",
-        ),
-
-        xMm: Math.min(
-          source.xMm +
-            DUPLICATE_OFFSET_MM,
-
-          Math.max(
-            0,
-
-            project.canvas
-              .widthMm -
-              source.widthMm,
-          ),
-        ),
-
-        yMm: Math.min(
-          source.yMm +
-            DUPLICATE_OFFSET_MM,
-
-          Math.max(
-            0,
-
-            project.canvas
-              .heightMm -
-              source.heightMm,
-          ),
-        ),
-
-        zIndex:
-          getNextZIndex(
-            project.stickers,
-          ),
-      };
-
-    commitNewStickers([
-      duplicate,
-    ]);
-  }
-
-  function handleDeleteSticker(
-    id: string,
-  ) {
-    if (!project) {
-      return;
-    }
-
-    const updatedProject: StickerProject =
-      {
-        ...project,
-
-        stickers:
-          project.stickers.filter(
-            (sticker) =>
-              sticker.id !== id,
-          ),
-      };
-
-    setSelectedStickerId(
-      (current) =>
-        current === id
-          ? null
-          : current,
-    );
-
-    setProject(
-      updatedProject,
-    );
-
-    saveProject(
-      updatedProject,
-    ).catch(() => {});
-  }
-
   // ============================================================
-  // GUIDES
+  // REFERENCE GUIDES
   // ============================================================
 
   function handleCreateGuide(
     axis:
       CanvasGuide["axis"],
 
-    positionMm: number,
+    positionMm:
+      number,
   ) {
     if (!project) {
       return;
     }
 
-    const guide: CanvasGuide =
-      {
-        id: createId(
-          "guide",
+    const maxPosition =
+      axis ===
+      "horizontal"
+        ? project.canvas
+            .heightMm
+        : project.canvas
+            .widthMm;
+
+    const clampedPosition =
+      Math.min(
+        Math.max(
+          0,
+          positionMm,
         ),
 
+        maxPosition,
+      );
+
+    const guide: CanvasGuide =
+      {
+        id:
+          createId(
+            "guide",
+          ),
+
         axis,
-        positionMm,
+
+        positionMm:
+          clampedPosition,
       };
 
     const updatedProject: StickerProject =
@@ -889,7 +1008,8 @@ export default function EditorScreen() {
   ) {
     setDraftGuide({
       axis,
-      positionMm: 0,
+      positionMm:
+        0,
     });
   }
 
@@ -897,7 +1017,8 @@ export default function EditorScreen() {
     axis:
       CanvasGuide["axis"],
 
-    positionMm: number,
+    positionMm:
+      number,
   ) {
     setDraftGuide({
       axis,
@@ -910,10 +1031,11 @@ export default function EditorScreen() {
       CanvasGuide["axis"],
 
     positionMm:
-      | number
-      | null,
+      number | null,
   ) {
-    setDraftGuide(null);
+    setDraftGuide(
+      null,
+    );
 
     if (
       positionMm !== null
@@ -1074,7 +1196,7 @@ export default function EditorScreen() {
   }
 
   // ============================================================
-  // IMPORT UI
+  // IMPORT MENU
   // ============================================================
 
   function handleAddToCanvas() {
@@ -1123,6 +1245,10 @@ export default function EditorScreen() {
     );
   }
 
+  // ============================================================
+  // PHOTO IMPORT
+  // ============================================================
+
   async function handleAddFromPhotos() {
     if (
       !project ||
@@ -1131,7 +1257,9 @@ export default function EditorScreen() {
       return;
     }
 
-    setIsImporting(true);
+    setIsImporting(
+      true,
+    );
 
     try {
       const permission =
@@ -1159,14 +1287,15 @@ export default function EditorScreen() {
             allowsMultipleSelection:
               true,
 
-            quality: 1,
+            quality:
+              1,
           },
         );
 
       if (
         result.canceled ||
-        result.assets
-          .length === 0
+        result.assets.length ===
+          0
       ) {
         return;
       }
@@ -1180,7 +1309,8 @@ export default function EditorScreen() {
         [];
 
       for (
-        const asset of result.assets
+        const asset of
+          result.assets
       ) {
         const sticker =
           await createStickerFromImportedImage(
@@ -1207,8 +1337,8 @@ export default function EditorScreen() {
             nextZIndex,
 
             /**
-             * Include existing sticker count so repeated import actions
-             * don't always use exactly the same first placement.
+             * Existing count + local import count means repeated
+             * imports don't all receive identical starting positions.
              */
             project.stickers
               .length +
@@ -1219,22 +1349,34 @@ export default function EditorScreen() {
           sticker,
         );
 
-        nextZIndex += 1;
+        nextZIndex +=
+          1;
       }
 
       await commitNewStickers(
         newStickers,
       );
-    } catch {
+    } catch (error) {
+      console.error(
+        "Photo import failed:",
+        error,
+      );
+
       Alert.alert(
         "Import failed",
 
         "StickerCut could not import that image.",
       );
     } finally {
-      setIsImporting(false);
+      setIsImporting(
+        false,
+      );
     }
   }
+
+  // ============================================================
+  // FILE IMPORT
+  // ============================================================
 
   async function handleAddFromFiles() {
     if (
@@ -1244,7 +1386,9 @@ export default function EditorScreen() {
       return;
     }
 
-    setIsImporting(true);
+    setIsImporting(
+      true,
+    );
 
     try {
       const result =
@@ -1256,7 +1400,8 @@ export default function EditorScreen() {
               "image/webp",
             ],
 
-            multiple: true,
+            multiple:
+              true,
 
             copyToCacheDirectory:
               true,
@@ -1266,8 +1411,8 @@ export default function EditorScreen() {
       if (
         result.canceled ||
         !result.assets ||
-        result.assets
-          .length === 0
+        result.assets.length ===
+          0
       ) {
         return;
       }
@@ -1281,7 +1426,8 @@ export default function EditorScreen() {
         [];
 
       for (
-        const asset of result.assets
+        const asset of
+          result.assets
       ) {
         const {
           width,
@@ -1321,22 +1467,34 @@ export default function EditorScreen() {
           sticker,
         );
 
-        nextZIndex += 1;
+        nextZIndex +=
+          1;
       }
 
       await commitNewStickers(
         newStickers,
       );
-    } catch {
+    } catch (error) {
+      console.error(
+        "File import failed:",
+        error,
+      );
+
       Alert.alert(
         "Import failed",
 
         "StickerCut could not import that file.",
       );
     } finally {
-      setIsImporting(false);
+      setIsImporting(
+        false,
+      );
     }
   }
+
+  // ============================================================
+  // CLIPBOARD / URL IMPORT
+  // ============================================================
 
   async function handlePasteFromClipboard() {
     if (
@@ -1346,9 +1504,16 @@ export default function EditorScreen() {
       return;
     }
 
-    setIsImporting(true);
+    setIsImporting(
+      true,
+    );
 
     try {
+      /**
+       * First try a REAL clipboard image.
+       *
+       * This covers Copy Image / copied screenshots where supported.
+       */
       const hasImage =
         await Clipboard.hasImageAsync();
 
@@ -1367,7 +1532,7 @@ export default function EditorScreen() {
           Alert.alert(
             "Paste unavailable",
 
-            "StickerCut couldn't read an image from the clipboard.",
+            "StickerCut found image data but could not read it.",
           );
 
           return;
@@ -1401,12 +1566,6 @@ export default function EditorScreen() {
 
             nextZIndex,
 
-            /**
-             * Do not always pass 0 here.
-             *
-             * Using the existing object count prevents every pasted
-             * sticker from receiving exactly the same initial placement.
-             */
             project.stickers
               .length,
           );
@@ -1418,6 +1577,18 @@ export default function EditorScreen() {
         return;
       }
 
+      /**
+       * If the clipboard isn't an image bitmap, try clipboard text.
+       *
+       * Unlike the old implementation, the whole clipboard does NOT
+       * have to be exactly one URL.
+       *
+       * For example:
+       *
+       * "Look at this image https://example.com/image.png"
+       *
+       * will still find the URL.
+       */
       const hasText =
         await Clipboard.hasStringAsync();
 
@@ -1428,29 +1599,46 @@ export default function EditorScreen() {
             ).trim()
           : "";
 
-      const looksLikeUrl =
-        /^https?:\/\/\S+$/i.test(
-          clipboardText,
+      const urlMatch =
+        clipboardText.match(
+          /https?:\/\/[^\s<>"']+/i,
         );
 
-      if (!looksLikeUrl) {
+      if (!urlMatch) {
         Alert.alert(
           "Nothing to paste",
 
-          "Your clipboard doesn't contain an image or a link to one right now.",
+          "Copy an image, image address, or webpage containing an image and try again.",
         );
 
         return;
       }
+
+      const pastedUrl =
+        urlMatch[0];
 
       const nextZIndex =
         getNextZIndex(
           project.stickers,
         );
 
+      /**
+       * createStickerFromUrl() now uses the improved URL downloader.
+       *
+       * It can support:
+       *
+       * direct image URL
+       *
+       * or
+       *
+       * webpage URL
+       * → HTML
+       * → og:image/twitter:image
+       * → actual image
+       */
       const sticker =
         await createStickerFromUrl(
-          clipboardText,
+          pastedUrl,
 
           project.canvas
             .widthMm,
@@ -1467,19 +1655,31 @@ export default function EditorScreen() {
       await commitNewStickers([
         sticker,
       ]);
-    } catch {
+    } catch (error) {
+      console.error(
+        "Clipboard paste failed:",
+        error,
+      );
+
+      const message =
+        error instanceof
+        Error
+          ? error.message
+          : "StickerCut could not paste that image.";
+
       Alert.alert(
         "Paste failed",
-
-        "StickerCut could not paste that image.",
+        message,
       );
     } finally {
-      setIsImporting(false);
+      setIsImporting(
+        false,
+      );
     }
   }
 
   // ============================================================
-  // LOADING
+  // LOADING SCREEN
   // ============================================================
 
   if (
@@ -1514,25 +1714,33 @@ export default function EditorScreen() {
   // ============================================================
 
   /**
-   * Leave enough room for the editor controls below the canvas.
+   * The page preserves physical proportions.
+   *
+   * It scales only for display — project geometry remains in mm.
    */
   const availableWidth =
     Math.max(
       120,
-      windowWidth - 40,
+
+      windowWidth -
+        48,
     );
 
+  /**
+   * The editor intentionally reserves vertical space for:
+   *
+   * header
+   * canvas status
+   * tabs
+   * control panel
+   * selected-object actions
+   */
   const availableHeight =
     Math.max(
       120,
 
-      windowHeight -
-        60 -
-        36 -
-        40 -
-        260 -
-        60 -
-        20,
+      windowHeight *
+        0.36,
     );
 
   const editorScale =
@@ -1607,7 +1815,10 @@ export default function EditorScreen() {
           styles.container
         }
       >
-        {/* HEADER */}
+        {/* =====================================================
+            HEADER
+        ====================================================== */}
+
         <View
           style={
             styles.header
@@ -1617,6 +1828,7 @@ export default function EditorScreen() {
             style={
               styles.headerButton
             }
+
             onPress={() =>
               router.back()
             }
@@ -1639,7 +1851,10 @@ export default function EditorScreen() {
               style={
                 styles.projectName
               }
-              numberOfLines={1}
+
+              numberOfLines={
+                1
+              }
             >
               {project.name}
             </Text>
@@ -1670,6 +1885,7 @@ export default function EditorScreen() {
             style={
               styles.saveButton
             }
+
             onPress={
               handleSave
             }
@@ -1682,29 +1898,12 @@ export default function EditorScreen() {
               Save
             </Text>
           </TouchableOpacity>
-
-          {objectCount >
-            0 && (
-            <TouchableOpacity
-              style={
-                styles.doneButton
-              }
-              onPress={
-                handlePreview
-              }
-            >
-              <Text
-                style={
-                  styles.doneButtonText
-                }
-              >
-                Preview →
-              </Text>
-            </TouchableOpacity>
-          )}
         </View>
 
-        {/* WORKSPACE */}
+        {/* =====================================================
+            WORKSPACE
+        ====================================================== */}
+
         <View
           style={
             styles.workspace
@@ -1712,6 +1911,7 @@ export default function EditorScreen() {
         >
           <View>
             {/* TOP RULER */}
+
             <View
               style={
                 styles.rulerGridRow
@@ -1767,6 +1967,7 @@ export default function EditorScreen() {
               }
             >
               {/* LEFT RULER */}
+
               <CanvasRuler
                 orientation="vertical"
 
@@ -1805,15 +2006,19 @@ export default function EditorScreen() {
               />
 
               {/*
-                IMPORTANT MOVE FIX:
+                IMPORTANT:
 
                 There is intentionally NO parent GestureDetector around
-                the canvas here.
+                this page.
 
-                StickerItem owns its own select/move gestures.
+                StickerItem owns:
+                - selection
+                - move
+                - resize
+                - rotation
 
-                This prevents a canvas-level tap gesture from competing
-                with sticker movement.
+                That prevents a canvas tap gesture from stealing the
+                same pointer event.
               */}
               <View
                 style={[
@@ -1842,6 +2047,8 @@ export default function EditorScreen() {
                 {transparent && (
                   <Checkerboard />
                 )}
+
+                {/* STICKERS */}
 
                 {sortedStickers.map(
                   (
@@ -1891,10 +2098,13 @@ export default function EditorScreen() {
                   ),
                 )}
 
+                {/* EMPTY CANVAS MESSAGE */}
+
                 {objectCount ===
                   0 && (
                   <View
                     pointerEvents="none"
+
                     style={
                       styles.emptyCanvas
                     }
@@ -1916,6 +2126,8 @@ export default function EditorScreen() {
                     </Text>
                   </View>
                 )}
+
+                {/* SAVED GUIDES */}
 
                 {(
                   project.guides ??
@@ -1955,6 +2167,8 @@ export default function EditorScreen() {
                   ),
                 )}
 
+                {/* GUIDE CURRENTLY BEING DRAGGED */}
+
                 {draftGuide && (
                   <View
                     pointerEvents="none"
@@ -1985,7 +2199,10 @@ export default function EditorScreen() {
           </View>
         </View>
 
-        {/* CANVAS INFO */}
+        {/* =====================================================
+            CANVAS INFORMATION
+        ====================================================== */}
+
         <View
           style={
             styles.canvasInfoBar
@@ -2010,18 +2227,164 @@ export default function EditorScreen() {
             mm
           </Text>
 
-          <Text
-            style={
-              styles.canvasInfoBadge
-            }
+          <View
+            style={{
+              flexDirection:
+                "row",
+
+              alignItems:
+                "center",
+
+              gap:
+                12,
+            }}
           >
-            {transparent
-              ? "TRANSPARENT"
-              : "SOLID"}
-          </Text>
+            <Text
+              style={
+                styles.canvasInfoBadge
+              }
+            >
+              {transparent
+                ? "TRANSPARENT"
+                : "SOLID"}
+            </Text>
+
+            {objectCount >
+              0 && (
+              <TouchableOpacity
+                onPress={
+                  handlePreview
+                }
+              >
+                <Text
+                  style={
+                    styles.canvasInfoBadge
+                  }
+                >
+                  PREVIEW →
+                </Text>
+              </TouchableOpacity>
+            )}
+          </View>
         </View>
 
-        {/* TABS */}
+        {/* =====================================================
+            SELECTED OBJECT ACTIONS
+
+            No fake Remove BG button appears here because the actual
+            background-removal processing pipeline has not been
+            implemented yet.
+        ====================================================== */}
+
+        {selectedStickerId &&
+          activeSticker && (
+            <View
+              style={
+                styles.selectionActionsRow
+              }
+            >
+              <TouchableOpacity
+                style={[
+                  styles.selectionActionButton,
+
+                  !(
+                    activeSticker.aspectLocked ??
+                    true
+                  ) &&
+                    styles.selectionActionButtonActive,
+                ]}
+
+                onPress={
+                  handleToggleAspectLocked
+                }
+              >
+                <Text
+                  style={[
+                    styles.selectionActionText,
+
+                    !(
+                      activeSticker.aspectLocked ??
+                      true
+                    ) &&
+                      styles.selectionActionTextActive,
+                  ]}
+                >
+                  Ratio{" "}
+                  {(
+                    activeSticker.aspectLocked ??
+                    true
+                  )
+                    ? "✓"
+                    : "Free"}
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={
+                  styles.selectionActionButton
+                }
+
+                onPress={
+                  handleRevertSelected
+                }
+              >
+                <Text
+                  style={
+                    styles.selectionActionText
+                  }
+                >
+                  Revert
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={
+                  styles.selectionActionButton
+                }
+
+                onPress={() =>
+                  handleDuplicateSticker(
+                    selectedStickerId,
+                  )
+                }
+              >
+                <Text
+                  style={
+                    styles.selectionActionText
+                  }
+                >
+                  Duplicate
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[
+                  styles.selectionActionButton,
+                  styles.selectionActionButtonDanger,
+                ]}
+
+                onPress={() =>
+                  handleDeleteSticker(
+                    selectedStickerId,
+                  )
+                }
+              >
+                <Text
+                  style={[
+                    styles.selectionActionText,
+                    styles.selectionActionTextDanger,
+                  ]}
+                >
+                  Delete
+                </Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
+        {/* =====================================================
+            CANVAS / CUT LINE TABS
+        ====================================================== */}
+
         <View
           style={
             styles.tabRow
@@ -2084,7 +2447,10 @@ export default function EditorScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* CANVAS TAB */}
+        {/* =====================================================
+            CANVAS TAB
+        ====================================================== */}
+
         {activeTab ===
         "canvas" ? (
           <ScrollView
@@ -2095,7 +2461,11 @@ export default function EditorScreen() {
             contentContainerStyle={
               styles.tabPanel
             }
+
+            keyboardShouldPersistTaps="handled"
           >
+            {/* ADD IMAGE */}
+
             <TouchableOpacity
               style={
                 styles.addImageButton
@@ -2136,7 +2506,8 @@ export default function EditorScreen() {
               </Text>
             </TouchableOpacity>
 
-            {/* BACKGROUND */}
+            {/* CANVAS BACKGROUND */}
+
             <View>
               <Text
                 style={
@@ -2170,6 +2541,28 @@ export default function EditorScreen() {
                     )
                   }
                 >
+                  <View
+                    style={{
+                      width:
+                        30,
+
+                      height:
+                        16,
+
+                      marginBottom:
+                        5,
+
+                      borderWidth:
+                        1,
+
+                      borderColor:
+                        Colors.border,
+
+                      backgroundColor:
+                        canvasColor,
+                    }}
+                  />
+
                   <Text
                     style={[
                       styles.backgroundToggleText,
@@ -2196,6 +2589,8 @@ export default function EditorScreen() {
                     )
                   }
                 >
+                  <MiniCheckerboard />
+
                   <Text
                     style={[
                       styles.backgroundToggleText,
@@ -2210,7 +2605,8 @@ export default function EditorScreen() {
               </View>
             </View>
 
-            {/* COLOR */}
+            {/* SOLID BACKGROUND COLOR */}
+
             {!transparent && (
               <View>
                 <Text
@@ -2240,6 +2636,10 @@ export default function EditorScreen() {
                           swatch.id
                         }
 
+                        accessibilityLabel={
+                          swatch.id
+                        }
+
                         onPress={() =>
                           handleSetCanvasColor(
                             swatch.value,
@@ -2265,7 +2665,8 @@ export default function EditorScreen() {
               </View>
             )}
 
-            {/* OBJECT LIST */}
+            {/* OBJECTS */}
+
             {objectCount >
               0 && (
               <View>
@@ -2288,8 +2689,11 @@ export default function EditorScreen() {
 
                 <View
                   style={{
-                    gap: 8,
-                    marginTop: 8,
+                    gap:
+                      8,
+
+                    marginTop:
+                      8,
                   }}
                 >
                   {[
@@ -2343,11 +2747,11 @@ export default function EditorScreen() {
                             }
                           >
                             {sticker.widthMm.toFixed(
-                              0,
+                              1,
                             )}
                             ×
                             {sticker.heightMm.toFixed(
-                              0,
+                              1,
                             )}
                             mm
                           </Text>
@@ -2399,7 +2803,10 @@ export default function EditorScreen() {
             )}
           </ScrollView>
         ) : (
-          /* CUT LINE TAB */
+          /* ===================================================
+             CUT LINE TAB
+          ==================================================== */
+
           <ScrollView
             style={
               styles.tabScroll
@@ -2409,7 +2816,7 @@ export default function EditorScreen() {
               styles.tabPanel
             }
           >
-            {!selectedStickerId ? (
+            {!activeSticker ? (
               <View
                 style={
                   styles.cutLinePlaceholder
@@ -2420,7 +2827,7 @@ export default function EditorScreen() {
                     styles.cutLinePlaceholderText
                   }
                 >
-                  Select a sticker to edit its cut line. Real contour tracing and export are not implemented yet.
+                  Select a sticker to edit its cut-line preview.
                 </Text>
               </View>
             ) : (
@@ -2450,11 +2857,11 @@ export default function EditorScreen() {
                       ) => {
                         const selectedShape =
                           activeSticker
-                            ?.cutLine
+                            .cutLine
                             .shape ??
                           DEFAULT_CUT_LINE_SHAPE;
 
-                        const isSelected =
+                        const selected =
                           selectedShape ===
                           option.id;
 
@@ -2467,7 +2874,7 @@ export default function EditorScreen() {
                             style={[
                               styles.cutShapeOption,
 
-                              isSelected &&
+                              selected &&
                                 styles.cutShapeOptionSelected,
                             ]}
 
@@ -2481,7 +2888,7 @@ export default function EditorScreen() {
                               style={[
                                 styles.cutShapeLabel,
 
-                                isSelected &&
+                                selected &&
                                   styles.cutShapeLabelSelected,
                               ]}
                             >
@@ -2507,7 +2914,7 @@ export default function EditorScreen() {
 
                   {(
                     activeSticker
-                      ?.cutLine
+                      .cutLine
                       .shape ??
                     DEFAULT_CUT_LINE_SHAPE
                   ) ===
@@ -2518,11 +2925,11 @@ export default function EditorScreen() {
 
                         {
                           marginTop:
-                            6,
+                            7,
                         },
                       ]}
                     >
-                      Tight contour tracing is not implemented yet.
+                      Tight contour tracing is not implemented yet. This is currently only a preview mode.
                     </Text>
                   )}
                 </View>
@@ -2552,11 +2959,11 @@ export default function EditorScreen() {
                       ) => {
                         const selectedColor =
                           activeSticker
-                            ?.cutLine
+                            .cutLine
                             .color ??
                           DEFAULT_CUT_LINE_COLOR;
 
-                        const isSelected =
+                        const selected =
                           selectedColor ===
                           swatch.value;
 
@@ -2580,7 +2987,7 @@ export default function EditorScreen() {
                                   swatch.value,
                               },
 
-                              isSelected &&
+                              selected &&
                                 styles.colorSwatchSelected,
                             ]}
                           />
@@ -2593,122 +3000,21 @@ export default function EditorScreen() {
             )}
           </ScrollView>
         )}
-
-        {/* SELECTED STICKER ACTIONS */}
-        {selectedStickerId && (
-          <View
-            style={
-              styles.selectionActionsRow
-            }
-          >
-            <TouchableOpacity
-              style={[
-                styles.selectionActionButton,
-
-                !(
-                  activeSticker
-                    ?.aspectLocked ??
-                  true
-                ) &&
-                  styles.selectionActionButtonActive,
-              ]}
-
-              onPress={
-                handleToggleAspectLocked
-              }
-            >
-              <Text
-                style={[
-                  styles.selectionActionText,
-
-                  !(
-                    activeSticker
-                      ?.aspectLocked ??
-                    true
-                  ) &&
-                    styles.selectionActionTextActive,
-                ]}
-              >
-                Ratio:{" "}
-                {(
-                  activeSticker
-                    ?.aspectLocked ??
-                  true
-                )
-                  ? "Locked"
-                  : "Free"}
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={
-                styles.selectionActionButton
-              }
-
-              onPress={
-                handleRevertSelected
-              }
-            >
-              <Text
-                style={
-                  styles.selectionActionText
-                }
-              >
-                Revert
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={
-                styles.selectionActionButton
-              }
-
-              onPress={() =>
-                handleDuplicateSticker(
-                  selectedStickerId,
-                )
-              }
-            >
-              <Text
-                style={
-                  styles.selectionActionText
-                }
-              >
-                Duplicate
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[
-                styles.selectionActionButton,
-                styles.selectionActionButtonDanger,
-              ]}
-
-              onPress={() =>
-                handleDeleteSticker(
-                  selectedStickerId,
-                )
-              }
-            >
-              <Text
-                style={[
-                  styles.selectionActionText,
-                  styles.selectionActionTextDanger,
-                ]}
-              >
-                Delete
-              </Text>
-            </TouchableOpacity>
-          </View>
-        )}
       </View>
     </SafeAreaView>
   );
 }
 
+// ============================================================
+// CHECKERBOARD
+// ============================================================
+
 function Checkerboard() {
-  const columns = 12;
-  const rows = 16;
+  const columns =
+    12;
+
+  const rows =
+    16;
 
   const cells =
     Array.from({
@@ -2720,6 +3026,7 @@ function Checkerboard() {
   return (
     <View
       pointerEvents="none"
+
       style={
         StyleSheet.absoluteFill
       }
@@ -2785,6 +3092,81 @@ function Checkerboard() {
           },
         )}
       </View>
+    </View>
+  );
+}
+
+/**
+ * Small checkerboard sample used inside the Transparent button.
+ */
+function MiniCheckerboard() {
+  return (
+    <View
+      style={{
+        width:
+          30,
+
+        height:
+          16,
+
+        flexDirection:
+          "row",
+
+        flexWrap:
+          "wrap",
+
+        marginBottom:
+          5,
+
+        overflow:
+          "hidden",
+
+        borderWidth:
+          1,
+
+        borderColor:
+          Colors.border,
+      }}
+    >
+      {Array.from({
+        length:
+          8,
+      }).map(
+        (
+          _,
+          index,
+        ) => (
+          <View
+            key={
+              index
+            }
+
+            style={{
+              width:
+                "25%",
+
+              height:
+                "50%",
+
+              backgroundColor:
+                (
+                  Math.floor(
+                    index /
+                      4,
+                  ) +
+                  (
+                    index %
+                    4
+                  )
+                ) %
+                  2 ===
+                0
+                  ? Colors.checkerLight
+                  : Colors.checkerDark,
+            }}
+          />
+        ),
+      )}
     </View>
   );
 }
