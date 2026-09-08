@@ -10,83 +10,49 @@ export interface ThemeOption {
   sublabel: string;
 
   /**
-   * Used only for the small theme preview card.
+   * Used only by the theme-choice card.
    */
   previewBackground: string;
 
   previewAccent: string;
 
   /**
-   * Only the light theme is actually implemented across the app right now.
+   * Only Light is fully implemented right now.
    *
-   * Dark and Pink remain visible as future options but should not pretend
-   * to work until the app uses a real runtime theme provider.
+   * Dark and Pink can remain visible as future options, but they should
+   * not pretend to work until styling is driven by a real theme context.
    */
   available: boolean;
 }
 
-export const THEME_OPTIONS: ThemeOption[] =
-  [
-    {
-      id:
-        "dark",
+export const THEME_OPTIONS: ThemeOption[] = [
+  {
+    id: "dark",
+    label: "Dark",
+    sublabel: "blueprint",
+    previewBackground: "#050B14",
+    previewAccent: "#00A8FF",
+    available: false,
+  },
 
-      label:
-        "Dark",
+  {
+    id: "light",
+    label: "Light",
+    sublabel: "blueprint",
+    previewBackground: "#E8F0F8",
+    previewAccent: "#0B84E0",
+    available: true,
+  },
 
-      sublabel:
-        "blueprint",
-
-      previewBackground:
-        "#050B14",
-
-      previewAccent:
-        "#00A8FF",
-
-      available:
-        false,
-    },
-
-    {
-      id:
-        "light",
-
-      label:
-        "Light",
-
-      sublabel:
-        "blueprint",
-
-      previewBackground:
-        "#E8F0F8",
-
-      previewAccent:
-        "#0B84E0",
-
-      available:
-        true,
-    },
-
-    {
-      id:
-        "pink",
-
-      label:
-        "Pink",
-
-      sublabel:
-        "kawaii",
-
-      previewBackground:
-        "#FCE8F0",
-
-      previewAccent:
-        "#E0348C",
-
-      available:
-        false,
-    },
-  ];
+  {
+    id: "pink",
+    label: "Pink",
+    sublabel: "kawaii",
+    previewBackground: "#FCE8F0",
+    previewAccent: "#E0348C",
+    available: false,
+  },
+];
 
 export const DEFAULT_THEME_ID: ThemeId =
   "light";

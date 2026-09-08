@@ -1,24 +1,21 @@
-export type CutLineShape = "tight" | "round" | "rect";
+export type CutLineShape =
+  | "tight"
+  | "round"
+  | "rect";
 
 export interface CutLineSettings {
   enabled: boolean;
 
   /**
-   * Physical distance between
-   * the artwork and cutting path.
+   * Physical gap between artwork and intended cutting path.
    */
   offsetMm: number;
 
   /**
-   * How the cut path is traced around the artwork. "tight" (contour
-   * tracing) isn't implemented yet — selecting it currently falls
-   * back to the same rounded-rectangle preview as "round", flagged
-   * honestly in the UI rather than silently doing nothing. Optional
-   * so projects saved before this field existed still load.
+   * `tight` is still only a future real contour mode.
    */
   shape?: CutLineShape;
 
-  /** Preview/output color for the cut path. */
   color?: string;
 }
 
@@ -26,61 +23,55 @@ export interface StickerObject {
   id: string;
 
   /**
-   * Original image stored on device.
+   * Persistent original artwork.
    */
   sourceUri: string;
 
   /**
-   * Optional processed image,
-   * such as after background removal.
+   * Future processed derivative, for example background removal.
+   *
+   * Original sourceUri should never be overwritten.
    */
   processedUri?: string;
 
   /**
-   * Sticker position relative
-   * to the physical print canvas.
+   * Permanent geometry is stored in physical units.
    */
   xMm: number;
+
   yMm: number;
 
   widthMm: number;
+
   heightMm: number;
 
-  /**
-   * Rotation in degrees.
-   */
   rotation: number;
 
-  /**
-   * Determines front/back order.
-   */
   zIndex: number;
 
   backgroundRemoved: boolean;
 
-  cutLine: CutLineSettings;
+  cutLine:
+    CutLineSettings;
 
   /**
-   * Pixel dimensions of the original imported image, captured once
-   * at import time regardless of source (Photos / Files / Paste).
-   * Used to derive print-quality PPI on demand — see
-   * utils/units.ts's calculateSourcePpi(). Optional so projects
-   * saved before this field existed still load without a migration.
+   * Original imported pixel resolution.
    */
-  originalWidthPx?: number;
-  originalHeightPx?: number;
+  originalWidthPx?:
+    number;
+
+  originalHeightPx?:
+    number;
 
   /**
-   * originalWidthPx / originalHeightPx, captured at import time.
-   * Enforced during resize when aspectLocked is true (the default).
+   * Original width / original height.
    */
-  aspectRatio?: number;
+  aspectRatio?:
+    number;
 
   /**
-   * When false, the four corner handles resize width/height
-   * independently instead of preserving aspectRatio. Optional and
-   * defaults to true (locked) so existing saved projects keep their
-   * old, aspect-locked resize behavior.
+   * Defaults to true.
    */
-  aspectLocked?: boolean;
+  aspectLocked?:
+    boolean;
 }

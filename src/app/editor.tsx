@@ -1,16 +1,10 @@
-import {
-  router,
-  useLocalSearchParams,
-} from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 
-import * as ImagePicker from "expo-image-picker";
-import * as DocumentPicker from "expo-document-picker";
 import * as Clipboard from "expo-clipboard";
+import * as DocumentPicker from "expo-document-picker";
+import * as ImagePicker from "expo-image-picker";
 
-import {
-  useEffect,
-  useState,
-} from "react";
+import { useEffect, useState } from "react";
 
 import { Image } from "expo-image";
 
@@ -52,27 +46,17 @@ import {
   createStickerFromUrl,
 } from "@/image/importImage";
 
-import {
-  getProject,
-  saveProject,
-} from "@/storage/projectStorage";
+import { getProject, saveProject } from "@/storage/projectStorage";
 
 import { styles } from "@/styles/editor.styles";
 
-import type {
-  CanvasGuide,
-  StickerProject,
-} from "@/types/project";
+import type { CanvasGuide, StickerProject } from "@/types/project";
 
-import type {
-  StickerObject,
-} from "@/types/sticker";
+import type { StickerObject } from "@/types/sticker";
 
 import { createId } from "@/utils/ids";
 
-import {
-  getImageDimensions,
-} from "@/utils/imageDimensions";
+import { getImageDimensions } from "@/utils/imageDimensions";
 
 import {
   computeDefaultStickerSizeMm,
@@ -80,73 +64,38 @@ import {
   MIN_STICKER_MM,
 } from "@/utils/stickers";
 
-import {
-  clampStickerPositionMm,
-} from "@/utils/stickerTransformMath";
+import { clampStickerPositionMm } from "@/utils/stickerTransformMath";
 
-import {
-  calculateEditorScale,
-  mmToDisplay,
-} from "@/utils/units";
+import { calculateEditorScale, mmToDisplay } from "@/utils/units";
 
 const DUPLICATE_OFFSET_MM = 6;
 
-type EditorTab =
-  | "canvas"
-  | "cutLine";
+type EditorTab = "canvas" | "cutLine";
 
 export default function EditorScreen() {
-  const params =
-    useLocalSearchParams<{
-      projectId?: string;
-      presetId?: string;
-      widthMm?: string;
-      heightMm?: string;
-      background?: string;
-      orientation?: string;
-      themeId?: string;
-    }>();
+  const params = useLocalSearchParams<{
+    projectId?: string;
+    presetId?: string;
+    widthMm?: string;
+    heightMm?: string;
+    background?: string;
+    orientation?: string;
+    themeId?: string;
+  }>();
 
-  const {
-    width: windowWidth,
-    height: windowHeight,
-  } = useWindowDimensions();
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
 
-  const [
-    project,
-    setProject,
-  ] =
-    useState<StickerProject | null>(
-      null,
-    );
+  const [project, setProject] = useState<StickerProject | null>(null);
 
-  const [
-    loading,
-    setLoading,
-  ] =
-    useState(true);
+  const [loading, setLoading] = useState(true);
 
-  const [
-    selectedStickerId,
-    setSelectedStickerId,
-  ] =
-    useState<string | null>(
-      null,
-    );
+  const [selectedStickerId, setSelectedStickerId] = useState<string | null>(
+    null,
+  );
 
-  const [
-    isImporting,
-    setIsImporting,
-  ] =
-    useState(false);
+  const [isImporting, setIsImporting] = useState(false);
 
-  const [
-    activeTab,
-    setActiveTab,
-  ] =
-    useState<EditorTab>(
-      "canvas",
-    );
+  const [activeTab, setActiveTab] = useState<EditorTab>("canvas");
 
   /**
    * Temporary reference guide while the user is still dragging
@@ -154,14 +103,10 @@ export default function EditorScreen() {
    *
    * It becomes part of project.guides only when the drag finishes.
    */
-  const [
-    draftGuide,
-    setDraftGuide,
-  ] =
-    useState<{
-      axis: CanvasGuide["axis"];
-      positionMm: number;
-    } | null>(null);
+  const [draftGuide, setDraftGuide] = useState<{
+    axis: CanvasGuide["axis"];
+    positionMm: number;
+  } | null>(null);
 
   useEffect(() => {
     initialiseProject();
@@ -175,15 +120,10 @@ export default function EditorScreen() {
 
   async function initialiseProject() {
     if (params.projectId) {
-      const existing =
-        await getProject(
-          params.projectId,
-        );
+      const existing = await getProject(params.projectId);
 
       if (existing) {
-        setProject(
-          existing,
-        );
+        setProject(existing);
 
         setLoading(false);
 
@@ -191,76 +131,47 @@ export default function EditorScreen() {
       }
     }
 
-    const widthMm =
-      Number(
-        params.widthMm,
-      ) || 210;
+    const widthMm = Number(params.widthMm) || 210;
 
-    const heightMm =
-      Number(
-        params.heightMm,
-      ) || 297;
+    const heightMm = Number(params.heightMm) || 297;
 
-    const now =
-      Date.now();
+    const now = Date.now();
 
-    const created: StickerProject =
-      {
-        id:
-          createId(
-            "project",
-          ),
+    const created: StickerProject = {
+      id: createId("project"),
 
-        name:
-          "Untitled",
+      name: "Untitled",
 
-        createdAt:
-          now,
+      createdAt: now,
 
-        updatedAt:
-          now,
+      updatedAt: now,
 
-        canvas: {
-          presetId:
-            params.presetId ??
-            "a4",
+      canvas: {
+        presetId: params.presetId ?? "a4",
 
-          widthMm,
-          heightMm,
+        widthMm,
+        heightMm,
 
-          orientation:
-            params.orientation ===
-            "landscape"
-              ? "landscape"
-              : "portrait",
+        orientation:
+          params.orientation === "landscape" ? "landscape" : "portrait",
 
-          background:
-            params.background ===
-            "transparent"
-              ? "transparent"
-              : "white",
-        },
+        background:
+          params.background === "transparent" ? "transparent" : "white",
+      },
 
-        stickers:
-          [],
+      stickers: [],
 
-        guides:
-          [],
+      guides: [],
 
-        themeId:
-          params.themeId ===
-            "dark" ||
-          params.themeId ===
-            "light" ||
-          params.themeId ===
-            "pink"
-            ? params.themeId
-            : DEFAULT_THEME_ID,
-      };
+      themeId:
+        params.themeId === "dark" ||
+        params.themeId === "light" ||
+        params.themeId === "pink"
+          ? params.themeId
+          : DEFAULT_THEME_ID,
+    };
 
-    setProject(
-      created,
-    );
+    setProject(created);
 
     setLoading(false);
   }
@@ -275,19 +186,14 @@ export default function EditorScreen() {
     }
 
     try {
-      await saveProject(
-        project,
-      );
+      await saveProject(project);
 
       Alert.alert(
         "Project saved",
         "Your StickerCut project was saved on this device.",
       );
     } catch {
-      Alert.alert(
-        "Save failed",
-        "StickerCut could not save this project.",
-      );
+      Alert.alert("Save failed", "StickerCut could not save this project.");
     }
   }
 
@@ -301,9 +207,7 @@ export default function EditorScreen() {
     }
 
     try {
-      await saveProject(
-        project,
-      );
+      await saveProject(project);
     } catch {
       Alert.alert(
         "Couldn't open preview",
@@ -314,12 +218,10 @@ export default function EditorScreen() {
     }
 
     router.push({
-      pathname:
-        "/preview",
+      pathname: "/preview",
 
       params: {
-        projectId:
-          project.id,
+        projectId: project.id,
       },
     });
   }
@@ -334,73 +236,45 @@ export default function EditorScreen() {
    * StickerItem performs the live display movement and reports only
    * the final physical delta when the gesture ends.
    */
-  function handleStickerMove(
-    id: string,
-    deltaXMm: number,
-    deltaYMm: number,
-  ) {
-    if (
-      !project ||
-      (
-        deltaXMm === 0 &&
-        deltaYMm === 0
-      )
-    ) {
+  function handleStickerMove(id: string, deltaXMm: number, deltaYMm: number) {
+    if (!project || (deltaXMm === 0 && deltaYMm === 0)) {
       return;
     }
 
-    const updatedProject: StickerProject =
-      {
-        ...project,
+    const updatedProject: StickerProject = {
+      ...project,
 
-        stickers:
-          project.stickers.map(
-            (sticker) => {
-              if (
-                sticker.id !==
-                id
-              ) {
-                return sticker;
-              }
+      stickers: project.stickers.map((sticker) => {
+        if (sticker.id !== id) {
+          return sticker;
+        }
 
-              const clamped =
-                clampStickerPositionMm(
-                  sticker.xMm +
-                    deltaXMm,
+        const clamped = clampStickerPositionMm(
+          sticker.xMm + deltaXMm,
 
-                  sticker.yMm +
-                    deltaYMm,
+          sticker.yMm + deltaYMm,
 
-                  sticker.widthMm,
-                  sticker.heightMm,
+          sticker.widthMm,
+          sticker.heightMm,
 
-                  project.canvas
-                    .widthMm,
+          project.canvas.widthMm,
 
-                  project.canvas
-                    .heightMm,
-                );
+          project.canvas.heightMm,
+        );
 
-              return {
-                ...sticker,
+        return {
+          ...sticker,
 
-                xMm:
-                  clamped.xMm,
+          xMm: clamped.xMm,
 
-                yMm:
-                  clamped.yMm,
-              };
-            },
-          ),
-      };
+          yMm: clamped.yMm,
+        };
+      }),
+    };
 
-    setProject(
-      updatedProject,
-    );
+    setProject(updatedProject);
 
-    saveProject(
-      updatedProject,
-    ).catch(() => {});
+    saveProject(updatedProject).catch(() => {});
   }
 
   function handleStickerResize(
@@ -425,285 +299,184 @@ export default function EditorScreen() {
       return;
     }
 
-    const updatedProject: StickerProject =
-      {
-        ...project,
+    const updatedProject: StickerProject = {
+      ...project,
 
-        stickers:
-          project.stickers.map(
-            (sticker) => {
-              if (
-                sticker.id !==
-                id
-              ) {
-                return sticker;
-              }
+      stickers: project.stickers.map((sticker) => {
+        if (sticker.id !== id) {
+          return sticker;
+        }
 
-              const widthMm =
-                Math.max(
-                  MIN_STICKER_MM,
+        const widthMm = Math.max(
+          MIN_STICKER_MM,
 
-                  sticker.widthMm +
-                    deltaWidthMm,
-                );
+          sticker.widthMm + deltaWidthMm,
+        );
 
-              const heightMm =
-                Math.max(
-                  MIN_STICKER_MM,
+        const heightMm = Math.max(
+          MIN_STICKER_MM,
 
-                  sticker.heightMm +
-                    deltaHeightMm,
-                );
+          sticker.heightMm + deltaHeightMm,
+        );
 
-              const clamped =
-                clampStickerPositionMm(
-                  sticker.xMm +
-                    deltaXMm,
+        const clamped = clampStickerPositionMm(
+          sticker.xMm + deltaXMm,
 
-                  sticker.yMm +
-                    deltaYMm,
+          sticker.yMm + deltaYMm,
 
-                  widthMm,
-                  heightMm,
+          widthMm,
+          heightMm,
 
-                  project.canvas
-                    .widthMm,
+          project.canvas.widthMm,
 
-                  project.canvas
-                    .heightMm,
-                );
+          project.canvas.heightMm,
+        );
 
-              return {
-                ...sticker,
+        return {
+          ...sticker,
 
-                xMm:
-                  clamped.xMm,
+          xMm: clamped.xMm,
 
-                yMm:
-                  clamped.yMm,
+          yMm: clamped.yMm,
 
-                widthMm,
-                heightMm,
-              };
-            },
-          ),
-      };
+          widthMm,
+          heightMm,
+        };
+      }),
+    };
 
-    setProject(
-      updatedProject,
-    );
+    setProject(updatedProject);
 
-    saveProject(
-      updatedProject,
-    ).catch(() => {});
+    saveProject(updatedProject).catch(() => {});
   }
 
-  function handleStickerRotate(
-    id: string,
-    deltaDegrees: number,
-  ) {
-    if (
-      !project ||
-      deltaDegrees === 0
-    ) {
+  function handleStickerRotate(id: string, deltaDegrees: number) {
+    if (!project || deltaDegrees === 0) {
       return;
     }
 
-    const updatedProject: StickerProject =
-      {
-        ...project,
+    const updatedProject: StickerProject = {
+      ...project,
 
-        stickers:
-          project.stickers.map(
-            (sticker) => {
-              if (
-                sticker.id !==
-                id
-              ) {
-                return sticker;
-              }
+      stickers: project.stickers.map((sticker) => {
+        if (sticker.id !== id) {
+          return sticker;
+        }
 
-              const rotation =
-                (
-                  (
-                    sticker.rotation +
-                    deltaDegrees
-                  ) %
-                    360 +
-                  360
-                ) %
-                360;
+        const rotation =
+          (((sticker.rotation + deltaDegrees) % 360) + 360) % 360;
 
-              return {
-                ...sticker,
-                rotation,
-              };
-            },
-          ),
-      };
+        return {
+          ...sticker,
+          rotation,
+        };
+      }),
+    };
 
-    setProject(
-      updatedProject,
-    );
+    setProject(updatedProject);
 
-    saveProject(
-      updatedProject,
-    ).catch(() => {});
+    saveProject(updatedProject).catch(() => {});
   }
 
   function handleToggleAspectLocked() {
-    if (
-      !project ||
-      !selectedStickerId
-    ) {
+    if (!project || !selectedStickerId) {
       return;
     }
 
-    const updatedProject: StickerProject =
-      {
-        ...project,
+    const updatedProject: StickerProject = {
+      ...project,
 
-        stickers:
-          project.stickers.map(
-            (sticker) =>
-              sticker.id ===
-              selectedStickerId
-                ? {
-                    ...sticker,
+      stickers: project.stickers.map((sticker) =>
+        sticker.id === selectedStickerId
+          ? {
+              ...sticker,
 
-                    aspectLocked:
-                      !(
-                        sticker.aspectLocked ??
-                        true
-                      ),
-                  }
-                : sticker,
-          ),
-      };
+              aspectLocked: !(sticker.aspectLocked ?? true),
+            }
+          : sticker,
+      ),
+    };
 
-    setProject(
-      updatedProject,
-    );
+    setProject(updatedProject);
 
-    saveProject(
-      updatedProject,
-    ).catch(() => {});
+    saveProject(updatedProject).catch(() => {});
   }
 
   /**
    * Reset size/rotation but keep the sticker's current position.
    */
   function handleRevertSelected() {
-    if (
-      !project ||
-      !selectedStickerId
-    ) {
+    if (!project || !selectedStickerId) {
       return;
     }
 
-    const updatedProject: StickerProject =
-      {
-        ...project,
+    const updatedProject: StickerProject = {
+      ...project,
 
-        stickers:
-          project.stickers.map(
-            (sticker) => {
-              if (
-                sticker.id !==
-                selectedStickerId
-              ) {
-                return sticker;
-              }
+      stickers: project.stickers.map((sticker) => {
+        if (sticker.id !== selectedStickerId) {
+          return sticker;
+        }
 
-              const sourceWidth =
-                sticker.originalWidthPx;
+        const sourceWidth = sticker.originalWidthPx;
 
-              const sourceHeight =
-                sticker.originalHeightPx;
+        const sourceHeight = sticker.originalHeightPx;
 
-              if (
-                !sourceWidth ||
-                !sourceHeight
-              ) {
-                return {
-                  ...sticker,
+        if (!sourceWidth || !sourceHeight) {
+          return {
+            ...sticker,
 
-                  rotation:
-                    0,
+            rotation: 0,
 
-                  aspectLocked:
-                    true,
-                };
-              }
+            aspectLocked: true,
+          };
+        }
 
-              const {
-                widthMm,
-                heightMm,
-              } =
-                computeDefaultStickerSizeMm(
-                  sourceWidth,
-                  sourceHeight,
-                );
+        const { widthMm, heightMm } = computeDefaultStickerSizeMm(
+          sourceWidth,
+          sourceHeight,
+        );
 
-              const clamped =
-                clampStickerPositionMm(
-                  sticker.xMm,
-                  sticker.yMm,
+        const clamped = clampStickerPositionMm(
+          sticker.xMm,
+          sticker.yMm,
 
-                  widthMm,
-                  heightMm,
+          widthMm,
+          heightMm,
 
-                  project.canvas
-                    .widthMm,
+          project.canvas.widthMm,
 
-                  project.canvas
-                    .heightMm,
-                );
+          project.canvas.heightMm,
+        );
 
-              return {
-                ...sticker,
+        return {
+          ...sticker,
 
-                xMm:
-                  clamped.xMm,
+          xMm: clamped.xMm,
 
-                yMm:
-                  clamped.yMm,
+          yMm: clamped.yMm,
 
-                widthMm,
-                heightMm,
+          widthMm,
+          heightMm,
 
-                rotation:
-                  0,
+          rotation: 0,
 
-                aspectLocked:
-                  true,
-              };
-            },
-          ),
-      };
+          aspectLocked: true,
+        };
+      }),
+    };
 
-    setProject(
-      updatedProject,
-    );
+    setProject(updatedProject);
 
-    saveProject(
-      updatedProject,
-    ).catch(() => {});
+    saveProject(updatedProject).catch(() => {});
   }
 
   // ============================================================
   // DUPLICATE / DELETE
   // ============================================================
 
-  async function commitNewStickers(
-    newStickers:
-      StickerObject[],
-  ) {
-    if (
-      !project ||
-      newStickers.length ===
-        0
-    ) {
+  async function commitNewStickers(newStickers: StickerObject[]) {
+    if (!project || newStickers.length === 0) {
       return;
     }
 
@@ -712,31 +485,18 @@ export default function EditorScreen() {
      *
      * New stickers are appended so importing B never removes A.
      */
-    const updatedProject: StickerProject =
-      {
-        ...project,
+    const updatedProject: StickerProject = {
+      ...project,
 
-        stickers: [
-          ...project.stickers,
-          ...newStickers,
-        ],
-      };
+      stickers: [...project.stickers, ...newStickers],
+    };
 
-    setProject(
-      updatedProject,
-    );
+    setProject(updatedProject);
 
-    setSelectedStickerId(
-      newStickers[
-        newStickers.length -
-          1
-      ].id,
-    );
+    setSelectedStickerId(newStickers[newStickers.length - 1].id);
 
     try {
-      await saveProject(
-        updatedProject,
-      );
+      await saveProject(updatedProject);
     } catch {
       /**
        * Manual Save remains available if autosave fails.
@@ -744,110 +504,68 @@ export default function EditorScreen() {
     }
   }
 
-  function handleDuplicateSticker(
-    id: string,
-  ) {
+  function handleDuplicateSticker(id: string) {
     if (!project) {
       return;
     }
 
-    const source =
-      project.stickers.find(
-        (sticker) =>
-          sticker.id === id,
-      );
+    const source = project.stickers.find((sticker) => sticker.id === id);
 
     if (!source) {
       return;
     }
 
-    const maxX =
-      Math.max(
-        0,
+    const maxX = Math.max(
+      0,
 
-        project.canvas
-          .widthMm -
-          source.widthMm,
-      );
+      project.canvas.widthMm - source.widthMm,
+    );
 
-    const maxY =
-      Math.max(
-        0,
+    const maxY = Math.max(
+      0,
 
-        project.canvas
-          .heightMm -
-          source.heightMm,
-      );
+      project.canvas.heightMm - source.heightMm,
+    );
 
-    const duplicate: StickerObject =
-      {
-        ...source,
+    const duplicate: StickerObject = {
+      ...source,
 
-        id:
-          createId(
-            "sticker",
-          ),
+      id: createId("sticker"),
 
-        xMm:
-          Math.min(
-            source.xMm +
-              DUPLICATE_OFFSET_MM,
+      xMm: Math.min(
+        source.xMm + DUPLICATE_OFFSET_MM,
 
-            maxX,
-          ),
+        maxX,
+      ),
 
-        yMm:
-          Math.min(
-            source.yMm +
-              DUPLICATE_OFFSET_MM,
+      yMm: Math.min(
+        source.yMm + DUPLICATE_OFFSET_MM,
 
-            maxY,
-          ),
+        maxY,
+      ),
 
-        zIndex:
-          getNextZIndex(
-            project.stickers,
-          ),
-      };
+      zIndex: getNextZIndex(project.stickers),
+    };
 
-    void commitNewStickers([
-      duplicate,
-    ]);
+    void commitNewStickers([duplicate]);
   }
 
-  function handleDeleteSticker(
-    id: string,
-  ) {
+  function handleDeleteSticker(id: string) {
     if (!project) {
       return;
     }
 
-    const updatedProject: StickerProject =
-      {
-        ...project,
+    const updatedProject: StickerProject = {
+      ...project,
 
-        stickers:
-          project.stickers.filter(
-            (sticker) =>
-              sticker.id !==
-              id,
-          ),
-      };
+      stickers: project.stickers.filter((sticker) => sticker.id !== id),
+    };
 
-    setSelectedStickerId(
-      (current) =>
-        current === id
-          ? null
-          : current,
-    );
+    setSelectedStickerId((current) => (current === id ? null : current));
 
-    setProject(
-      updatedProject,
-    );
+    setProject(updatedProject);
 
-    saveProject(
-      updatedProject,
-    ).catch(() => {});
+    saveProject(updatedProject).catch(() => {});
   }
 
   // ============================================================
@@ -855,84 +573,59 @@ export default function EditorScreen() {
   // ============================================================
 
   function handleSetCutLineShape(
-    shape:
-      (typeof CUT_SHAPE_OPTIONS)[number]["id"],
+    shape: (typeof CUT_SHAPE_OPTIONS)[number]["id"],
   ) {
-    if (
-      !project ||
-      !selectedStickerId
-    ) {
+    if (!project || !selectedStickerId) {
       return;
     }
 
-    const updatedProject: StickerProject =
-      {
-        ...project,
+    const updatedProject: StickerProject = {
+      ...project,
 
-        stickers:
-          project.stickers.map(
-            (sticker) =>
-              sticker.id ===
-              selectedStickerId
-                ? {
-                    ...sticker,
+      stickers: project.stickers.map((sticker) =>
+        sticker.id === selectedStickerId
+          ? {
+              ...sticker,
 
-                    cutLine: {
-                      ...sticker.cutLine,
-                      shape,
-                    },
-                  }
-                : sticker,
-          ),
-      };
+              cutLine: {
+                ...sticker.cutLine,
+                shape,
+              },
+            }
+          : sticker,
+      ),
+    };
 
-    setProject(
-      updatedProject,
-    );
+    setProject(updatedProject);
 
-    saveProject(
-      updatedProject,
-    ).catch(() => {});
+    saveProject(updatedProject).catch(() => {});
   }
 
-  function handleSetCutLineColor(
-    color: string,
-  ) {
-    if (
-      !project ||
-      !selectedStickerId
-    ) {
+  function handleSetCutLineColor(color: string) {
+    if (!project || !selectedStickerId) {
       return;
     }
 
-    const updatedProject: StickerProject =
-      {
-        ...project,
+    const updatedProject: StickerProject = {
+      ...project,
 
-        stickers:
-          project.stickers.map(
-            (sticker) =>
-              sticker.id ===
-              selectedStickerId
-                ? {
-                    ...sticker,
+      stickers: project.stickers.map((sticker) =>
+        sticker.id === selectedStickerId
+          ? {
+              ...sticker,
 
-                    cutLine: {
-                      ...sticker.cutLine,
-                      color,
-                    },
-                  }
-                : sticker,
-          ),
-      };
+              cutLine: {
+                ...sticker.cutLine,
+                color,
+              },
+            }
+          : sticker,
+      ),
+    };
 
-    setProject(
-      updatedProject,
-    );
+    setProject(updatedProject);
 
-    saveProject(
-      updatedProject,
-    ).catch(() => {});
+    saveProject(updatedProject).catch(() => {});
   }
 
   // ============================================================
@@ -940,85 +633,53 @@ export default function EditorScreen() {
   // ============================================================
 
   function handleCreateGuide(
-    axis:
-      CanvasGuide["axis"],
+    axis: CanvasGuide["axis"],
 
-    positionMm:
-      number,
+    positionMm: number,
   ) {
     if (!project) {
       return;
     }
 
     const maxPosition =
-      axis ===
-      "horizontal"
-        ? project.canvas
-            .heightMm
-        : project.canvas
-            .widthMm;
+      axis === "horizontal" ? project.canvas.heightMm : project.canvas.widthMm;
 
-    const clampedPosition =
-      Math.min(
-        Math.max(
-          0,
-          positionMm,
-        ),
+    const clampedPosition = Math.min(
+      Math.max(0, positionMm),
 
-        maxPosition,
-      );
-
-    const guide: CanvasGuide =
-      {
-        id:
-          createId(
-            "guide",
-          ),
-
-        axis,
-
-        positionMm:
-          clampedPosition,
-      };
-
-    const updatedProject: StickerProject =
-      {
-        ...project,
-
-        guides: [
-          ...(project.guides ??
-            []),
-
-          guide,
-        ],
-      };
-
-    setProject(
-      updatedProject,
+      maxPosition,
     );
 
-    saveProject(
-      updatedProject,
-    ).catch(() => {});
+    const guide: CanvasGuide = {
+      id: createId("guide"),
+
+      axis,
+
+      positionMm: clampedPosition,
+    };
+
+    const updatedProject: StickerProject = {
+      ...project,
+
+      guides: [...(project.guides ?? []), guide],
+    };
+
+    setProject(updatedProject);
+
+    saveProject(updatedProject).catch(() => {});
   }
 
-  function handleGuideDragStart(
-    axis:
-      CanvasGuide["axis"],
-  ) {
+  function handleGuideDragStart(axis: CanvasGuide["axis"]) {
     setDraftGuide({
       axis,
-      positionMm:
-        0,
+      positionMm: 0,
     });
   }
 
   function handleGuideDrag(
-    axis:
-      CanvasGuide["axis"],
+    axis: CanvasGuide["axis"],
 
-    positionMm:
-      number,
+    positionMm: number,
   ) {
     setDraftGuide({
       axis,
@@ -1027,172 +688,109 @@ export default function EditorScreen() {
   }
 
   function handleGuideDragEnd(
-    axis:
-      CanvasGuide["axis"],
+    axis: CanvasGuide["axis"],
 
-    positionMm:
-      number | null,
+    positionMm: number | null,
   ) {
-    setDraftGuide(
-      null,
-    );
+    setDraftGuide(null);
 
-    if (
-      positionMm !== null
-    ) {
-      handleCreateGuide(
-        axis,
-        positionMm,
-      );
+    if (positionMm !== null) {
+      handleCreateGuide(axis, positionMm);
     }
   }
 
-  function handleMoveGuide(
-    id: string,
-    positionMm: number,
-  ) {
+  function handleMoveGuide(id: string, positionMm: number) {
     if (!project) {
       return;
     }
 
-    const updatedProject: StickerProject =
-      {
-        ...project,
+    const updatedProject: StickerProject = {
+      ...project,
 
-        guides:
-          (
-            project.guides ??
-            []
-          ).map(
-            (guide) => {
-              if (
-                guide.id !== id
-              ) {
-                return guide;
-              }
+      guides: (project.guides ?? []).map((guide) => {
+        if (guide.id !== id) {
+          return guide;
+        }
 
-              const maxMm =
-                guide.axis ===
-                "horizontal"
-                  ? project.canvas
-                      .heightMm
-                  : project.canvas
-                      .widthMm;
+        const maxMm =
+          guide.axis === "horizontal"
+            ? project.canvas.heightMm
+            : project.canvas.widthMm;
 
-              return {
-                ...guide,
+        return {
+          ...guide,
 
-                positionMm:
-                  Math.min(
-                    Math.max(
-                      0,
-                      positionMm,
-                    ),
+          positionMm: Math.min(
+            Math.max(0, positionMm),
 
-                    maxMm,
-                  ),
-              };
-            },
+            maxMm,
           ),
-      };
+        };
+      }),
+    };
 
-    setProject(
-      updatedProject,
-    );
+    setProject(updatedProject);
 
-    saveProject(
-      updatedProject,
-    ).catch(() => {});
+    saveProject(updatedProject).catch(() => {});
   }
 
-  function handleDeleteGuide(
-    id: string,
-  ) {
+  function handleDeleteGuide(id: string) {
     if (!project) {
       return;
     }
 
-    const updatedProject: StickerProject =
-      {
-        ...project,
+    const updatedProject: StickerProject = {
+      ...project,
 
-        guides:
-          (
-            project.guides ??
-            []
-          ).filter(
-            (guide) =>
-              guide.id !== id,
-          ),
-      };
+      guides: (project.guides ?? []).filter((guide) => guide.id !== id),
+    };
 
-    setProject(
-      updatedProject,
-    );
+    setProject(updatedProject);
 
-    saveProject(
-      updatedProject,
-    ).catch(() => {});
+    saveProject(updatedProject).catch(() => {});
   }
 
   // ============================================================
   // CANVAS SETTINGS
   // ============================================================
 
-  function handleSetBackground(
-    background:
-      | "white"
-      | "transparent",
-  ) {
+  function handleSetBackground(background: "white" | "transparent") {
     if (!project) {
       return;
     }
 
-    const updatedProject: StickerProject =
-      {
-        ...project,
+    const updatedProject: StickerProject = {
+      ...project,
 
-        canvas: {
-          ...project.canvas,
-          background,
-        },
-      };
+      canvas: {
+        ...project.canvas,
+        background,
+      },
+    };
 
-    setProject(
-      updatedProject,
-    );
+    setProject(updatedProject);
 
-    saveProject(
-      updatedProject,
-    ).catch(() => {});
+    saveProject(updatedProject).catch(() => {});
   }
 
-  function handleSetCanvasColor(
-    color: string,
-  ) {
+  function handleSetCanvasColor(color: string) {
     if (!project) {
       return;
     }
 
-    const updatedProject: StickerProject =
-      {
-        ...project,
+    const updatedProject: StickerProject = {
+      ...project,
 
-        canvas: {
-          ...project.canvas,
+      canvas: {
+        ...project.canvas,
 
-          canvasColor:
-            color,
-        },
-      };
+        canvasColor: color,
+      },
+    };
 
-    setProject(
-      updatedProject,
-    );
+    setProject(updatedProject);
 
-    saveProject(
-      updatedProject,
-    ).catch(() => {});
+    saveProject(updatedProject).catch(() => {});
   }
 
   // ============================================================
@@ -1211,35 +809,27 @@ export default function EditorScreen() {
 
       [
         {
-          text:
-            "Photos",
+          text: "Photos",
 
-          onPress:
-            handleAddFromPhotos,
+          onPress: handleAddFromPhotos,
         },
 
         {
-          text:
-            "Files",
+          text: "Files",
 
-          onPress:
-            handleAddFromFiles,
+          onPress: handleAddFromFiles,
         },
 
         {
-          text:
-            "Paste",
+          text: "Paste",
 
-          onPress:
-            handlePasteFromClipboard,
+          onPress: handlePasteFromClipboard,
         },
 
         {
-          text:
-            "Cancel",
+          text: "Cancel",
 
-          style:
-            "cancel",
+          style: "cancel",
         },
       ],
     );
@@ -1250,24 +840,17 @@ export default function EditorScreen() {
   // ============================================================
 
   async function handleAddFromPhotos() {
-    if (
-      !project ||
-      isImporting
-    ) {
+    if (!project || isImporting) {
       return;
     }
 
-    setIsImporting(
-      true,
-    );
+    setIsImporting(true);
 
     try {
       const permission =
         await ImagePicker.requestMediaLibraryPermissionsAsync();
 
-      if (
-        !permission.granted
-      ) {
+      if (!permission.granted) {
         Alert.alert(
           "Permission needed",
 
@@ -1277,90 +860,55 @@ export default function EditorScreen() {
         return;
       }
 
-      const result =
-        await ImagePicker.launchImageLibraryAsync(
-          {
-            mediaTypes: [
-              "images",
-            ],
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ["images"],
 
-            allowsMultipleSelection:
-              true,
+        allowsMultipleSelection: true,
 
-            quality:
-              1,
-          },
-        );
+        quality: 1,
+      });
 
-      if (
-        result.canceled ||
-        result.assets.length ===
-          0
-      ) {
+      if (result.canceled || result.assets.length === 0) {
         return;
       }
 
-      let nextZIndex =
-        getNextZIndex(
-          project.stickers,
+      let nextZIndex = getNextZIndex(project.stickers);
+
+      const newStickers: StickerObject[] = [];
+
+      for (const asset of result.assets) {
+        const sticker = await createStickerFromImportedImage(
+          {
+            uri: asset.uri,
+
+            width: asset.width,
+
+            height: asset.height,
+
+            fileName: asset.fileName,
+          },
+
+          project.canvas.widthMm,
+
+          project.canvas.heightMm,
+
+          nextZIndex,
+
+          /**
+           * Existing count + local import count means repeated
+           * imports don't all receive identical starting positions.
+           */
+          project.stickers.length + newStickers.length,
         );
 
-      const newStickers: StickerObject[] =
-        [];
+        newStickers.push(sticker);
 
-      for (
-        const asset of
-          result.assets
-      ) {
-        const sticker =
-          await createStickerFromImportedImage(
-            {
-              uri:
-                asset.uri,
-
-              width:
-                asset.width,
-
-              height:
-                asset.height,
-
-              fileName:
-                asset.fileName,
-            },
-
-            project.canvas
-              .widthMm,
-
-            project.canvas
-              .heightMm,
-
-            nextZIndex,
-
-            /**
-             * Existing count + local import count means repeated
-             * imports don't all receive identical starting positions.
-             */
-            project.stickers
-              .length +
-              newStickers.length,
-          );
-
-        newStickers.push(
-          sticker,
-        );
-
-        nextZIndex +=
-          1;
+        nextZIndex += 1;
       }
 
-      await commitNewStickers(
-        newStickers,
-      );
+      await commitNewStickers(newStickers);
     } catch (error) {
-      console.error(
-        "Photo import failed:",
-        error,
-      );
+      console.error("Photo import failed:", error);
 
       Alert.alert(
         "Import failed",
@@ -1368,9 +916,7 @@ export default function EditorScreen() {
         "StickerCut could not import that image.",
       );
     } finally {
-      setIsImporting(
-        false,
-      );
+      setIsImporting(false);
     }
   }
 
@@ -1379,106 +925,59 @@ export default function EditorScreen() {
   // ============================================================
 
   async function handleAddFromFiles() {
-    if (
-      !project ||
-      isImporting
-    ) {
+    if (!project || isImporting) {
       return;
     }
 
-    setIsImporting(
-      true,
-    );
+    setIsImporting(true);
 
     try {
-      const result =
-        await DocumentPicker.getDocumentAsync(
-          {
-            type: [
-              "image/png",
-              "image/jpeg",
-              "image/webp",
-            ],
+      const result = await DocumentPicker.getDocumentAsync({
+        type: ["image/png", "image/jpeg", "image/webp"],
 
-            multiple:
-              true,
+        multiple: true,
 
-            copyToCacheDirectory:
-              true,
-          },
-        );
+        copyToCacheDirectory: true,
+      });
 
-      if (
-        result.canceled ||
-        !result.assets ||
-        result.assets.length ===
-          0
-      ) {
+      if (result.canceled || !result.assets || result.assets.length === 0) {
         return;
       }
 
-      let nextZIndex =
-        getNextZIndex(
-          project.stickers,
+      let nextZIndex = getNextZIndex(project.stickers);
+
+      const newStickers: StickerObject[] = [];
+
+      for (const asset of result.assets) {
+        const { width, height } = await getImageDimensions(asset.uri);
+
+        const sticker = await createStickerFromImportedImage(
+          {
+            uri: asset.uri,
+
+            width,
+            height,
+
+            fileName: asset.name,
+          },
+
+          project.canvas.widthMm,
+
+          project.canvas.heightMm,
+
+          nextZIndex,
+
+          project.stickers.length + newStickers.length,
         );
 
-      const newStickers: StickerObject[] =
-        [];
+        newStickers.push(sticker);
 
-      for (
-        const asset of
-          result.assets
-      ) {
-        const {
-          width,
-          height,
-        } =
-          await getImageDimensions(
-            asset.uri,
-          );
-
-        const sticker =
-          await createStickerFromImportedImage(
-            {
-              uri:
-                asset.uri,
-
-              width,
-              height,
-
-              fileName:
-                asset.name,
-            },
-
-            project.canvas
-              .widthMm,
-
-            project.canvas
-              .heightMm,
-
-            nextZIndex,
-
-            project.stickers
-              .length +
-              newStickers.length,
-          );
-
-        newStickers.push(
-          sticker,
-        );
-
-        nextZIndex +=
-          1;
+        nextZIndex += 1;
       }
 
-      await commitNewStickers(
-        newStickers,
-      );
+      await commitNewStickers(newStickers);
     } catch (error) {
-      console.error(
-        "File import failed:",
-        error,
-      );
+      console.error("File import failed:", error);
 
       Alert.alert(
         "Import failed",
@@ -1486,9 +985,7 @@ export default function EditorScreen() {
         "StickerCut could not import that file.",
       );
     } finally {
-      setIsImporting(
-        false,
-      );
+      setIsImporting(false);
     }
   }
 
@@ -1497,16 +994,11 @@ export default function EditorScreen() {
   // ============================================================
 
   async function handlePasteFromClipboard() {
-    if (
-      !project ||
-      isImporting
-    ) {
+    if (!project || isImporting) {
       return;
     }
 
-    setIsImporting(
-      true,
-    );
+    setIsImporting(true);
 
     try {
       /**
@@ -1514,21 +1006,14 @@ export default function EditorScreen() {
        *
        * This covers Copy Image / copied screenshots where supported.
        */
-      const hasImage =
-        await Clipboard.hasImageAsync();
+      const hasImage = await Clipboard.hasImageAsync();
 
       if (hasImage) {
-        const clipboardImage =
-          await Clipboard.getImageAsync(
-            {
-              format:
-                "png",
-            },
-          );
+        const clipboardImage = await Clipboard.getImageAsync({
+          format: "png",
+        });
 
-        if (
-          !clipboardImage
-        ) {
+        if (!clipboardImage) {
           Alert.alert(
             "Paste unavailable",
 
@@ -1538,41 +1023,27 @@ export default function EditorScreen() {
           return;
         }
 
-        const nextZIndex =
-          getNextZIndex(
-            project.stickers,
-          );
+        const nextZIndex = getNextZIndex(project.stickers);
 
-        const sticker =
-          createStickerFromClipboardImage(
-            {
-              dataUri:
-                clipboardImage.data,
+        const sticker = createStickerFromClipboardImage(
+          {
+            dataUri: clipboardImage.data,
 
-              width:
-                clipboardImage
-                  .size.width,
+            width: clipboardImage.size.width,
 
-              height:
-                clipboardImage
-                  .size.height,
-            },
+            height: clipboardImage.size.height,
+          },
 
-            project.canvas
-              .widthMm,
+          project.canvas.widthMm,
 
-            project.canvas
-              .heightMm,
+          project.canvas.heightMm,
 
-            nextZIndex,
+          nextZIndex,
 
-            project.stickers
-              .length,
-          );
+          project.stickers.length,
+        );
 
-        await commitNewStickers([
-          sticker,
-        ]);
+        await commitNewStickers([sticker]);
 
         return;
       }
@@ -1589,20 +1060,13 @@ export default function EditorScreen() {
        *
        * will still find the URL.
        */
-      const hasText =
-        await Clipboard.hasStringAsync();
+      const hasText = await Clipboard.hasStringAsync();
 
-      const clipboardText =
-        hasText
-          ? (
-              await Clipboard.getStringAsync()
-            ).trim()
-          : "";
+      const clipboardText = hasText
+        ? (await Clipboard.getStringAsync()).trim()
+        : "";
 
-      const urlMatch =
-        clipboardText.match(
-          /https?:\/\/[^\s<>"']+/i,
-        );
+      const urlMatch = clipboardText.match(/https?:\/\/[^\s<>"']+/i);
 
       if (!urlMatch) {
         Alert.alert(
@@ -1614,13 +1078,9 @@ export default function EditorScreen() {
         return;
       }
 
-      const pastedUrl =
-        urlMatch[0];
+      const pastedUrl = urlMatch[0];
 
-      const nextZIndex =
-        getNextZIndex(
-          project.stickers,
-        );
+      const nextZIndex = getNextZIndex(project.stickers);
 
       /**
        * createStickerFromUrl() now uses the improved URL downloader.
@@ -1636,45 +1096,30 @@ export default function EditorScreen() {
        * → og:image/twitter:image
        * → actual image
        */
-      const sticker =
-        await createStickerFromUrl(
-          pastedUrl,
+      const sticker = await createStickerFromUrl(
+        pastedUrl,
 
-          project.canvas
-            .widthMm,
+        project.canvas.widthMm,
 
-          project.canvas
-            .heightMm,
+        project.canvas.heightMm,
 
-          nextZIndex,
+        nextZIndex,
 
-          project.stickers
-            .length,
-        );
-
-      await commitNewStickers([
-        sticker,
-      ]);
-    } catch (error) {
-      console.error(
-        "Clipboard paste failed:",
-        error,
+        project.stickers.length,
       );
 
+      await commitNewStickers([sticker]);
+    } catch (error) {
+      console.error("Clipboard paste failed:", error);
+
       const message =
-        error instanceof
-        Error
+        error instanceof Error
           ? error.message
           : "StickerCut could not paste that image.";
 
-      Alert.alert(
-        "Paste failed",
-        message,
-      );
+      Alert.alert("Paste failed", message);
     } finally {
-      setIsImporting(
-        false,
-      );
+      setIsImporting(false);
     }
   }
 
@@ -1682,28 +1127,11 @@ export default function EditorScreen() {
   // LOADING SCREEN
   // ============================================================
 
-  if (
-    loading ||
-    !project
-  ) {
+  if (loading || !project) {
     return (
-      <SafeAreaView
-        style={
-          styles.safeArea
-        }
-      >
-        <View
-          style={
-            styles.loading
-          }
-        >
-          <Text
-            style={
-              styles.loadingText
-            }
-          >
-            LOADING PROJECT...
-          </Text>
+      <SafeAreaView style={styles.safeArea}>
+        <View style={styles.loading}>
+          <Text style={styles.loadingText}>LOADING PROJECT...</Text>
         </View>
       </SafeAreaView>
     );
@@ -1718,13 +1146,11 @@ export default function EditorScreen() {
    *
    * It scales only for display — project geometry remains in mm.
    */
-  const availableWidth =
-    Math.max(
-      120,
+  const availableWidth = Math.max(
+    120,
 
-      windowWidth -
-        48,
-    );
+    windowWidth - 48,
+  );
 
   /**
    * The editor intentionally reserves vertical space for:
@@ -1735,168 +1161,79 @@ export default function EditorScreen() {
    * control panel
    * selected-object actions
    */
-  const availableHeight =
-    Math.max(
-      120,
+  const availableHeight = Math.max(
+    120,
 
-      windowHeight *
-        0.36,
-    );
+    windowHeight * 0.36,
+  );
 
-  const editorScale =
-    calculateEditorScale(
-      project.canvas
-        .widthMm,
+  const editorScale = calculateEditorScale(
+    project.canvas.widthMm,
 
-      project.canvas
-        .heightMm,
+    project.canvas.heightMm,
 
-      availableWidth,
-      availableHeight,
-    );
+    availableWidth,
+    availableHeight,
+  );
 
-  const canvasDisplayWidth =
-    mmToDisplay(
-      project.canvas
-        .widthMm,
+  const canvasDisplayWidth = mmToDisplay(
+    project.canvas.widthMm,
 
-      editorScale,
-    );
+    editorScale,
+  );
 
-  const canvasDisplayHeight =
-    mmToDisplay(
-      project.canvas
-        .heightMm,
+  const canvasDisplayHeight = mmToDisplay(
+    project.canvas.heightMm,
 
-      editorScale,
-    );
+    editorScale,
+  );
 
-  const transparent =
-    project.canvas
-      .background ===
-    "transparent";
+  const transparent = project.canvas.background === "transparent";
 
-  const canvasColor =
-    project.canvas
-      .canvasColor ??
-    DEFAULT_CANVAS_COLOR;
+  const canvasColor = project.canvas.canvasColor ?? DEFAULT_CANVAS_COLOR;
 
-  const sortedStickers =
-    [
-      ...project.stickers,
-    ].sort(
-      (a, b) =>
-        a.zIndex -
-        b.zIndex,
-    );
+  const sortedStickers = [...project.stickers].sort(
+    (a, b) => a.zIndex - b.zIndex,
+  );
 
-  const objectCount =
-    project.stickers.length;
+  const objectCount = project.stickers.length;
 
   const activeSticker =
-    project.stickers.find(
-      (sticker) =>
-        sticker.id ===
-        selectedStickerId,
-    ) ?? null;
+    project.stickers.find((sticker) => sticker.id === selectedStickerId) ??
+    null;
 
   // ============================================================
   // RENDER
   // ============================================================
 
   return (
-    <SafeAreaView
-      style={
-        styles.safeArea
-      }
-    >
-      <View
-        style={
-          styles.container
-        }
-      >
+    <SafeAreaView style={styles.safeArea}>
+      <View style={styles.container}>
         {/* =====================================================
             HEADER
         ====================================================== */}
 
-        <View
-          style={
-            styles.header
-          }
-        >
+        <View style={styles.header}>
           <TouchableOpacity
-            style={
-              styles.headerButton
-            }
-
-            onPress={() =>
-              router.back()
-            }
+            style={styles.headerButton}
+            onPress={() => router.back()}
           >
-            <Text
-              style={
-                styles.headerButtonText
-              }
-            >
-              ‹ Home
-            </Text>
+            <Text style={styles.headerButtonText}>‹ Home</Text>
           </TouchableOpacity>
 
-          <View
-            style={
-              styles.projectInfo
-            }
-          >
-            <Text
-              style={
-                styles.projectName
-              }
-
-              numberOfLines={
-                1
-              }
-            >
+          <View style={styles.projectInfo}>
+            <Text style={styles.projectName} numberOfLines={1}>
               {project.name}
             </Text>
 
-            <Text
-              style={
-                styles.projectMeta
-              }
-            >
-              {
-                project.canvas
-                  .widthMm
-              }
-              ×
-              {
-                project.canvas
-                  .heightMm
-              }
-              mm ·{" "}
-              {
-                objectCount
-              }{" "}
-              obj
+            <Text style={styles.projectMeta}>
+              {project.canvas.widthMm}×{project.canvas.heightMm}
+              mm · {objectCount} obj
             </Text>
           </View>
 
-          <TouchableOpacity
-            style={
-              styles.saveButton
-            }
-
-            onPress={
-              handleSave
-            }
-          >
-            <Text
-              style={
-                styles.saveText
-              }
-            >
-              Save
-            </Text>
+          <TouchableOpacity style={styles.saveButton} onPress={handleSave}>
+            <Text style={styles.saveText}>Save</Text>
           </TouchableOpacity>
         </View>
 
@@ -1904,104 +1241,40 @@ export default function EditorScreen() {
             WORKSPACE
         ====================================================== */}
 
-        <View
-          style={
-            styles.workspace
-          }
-        >
+        <View style={styles.workspace}>
           <View>
             {/* TOP RULER */}
 
-            <View
-              style={
-                styles.rulerGridRow
-              }
-            >
-              <View
-                style={
-                  styles.cornerSpacer
-                }
-              />
+            <View style={styles.rulerGridRow}>
+              <View style={styles.cornerSpacer} />
 
               <CanvasRuler
                 orientation="horizontal"
-
-                lengthMm={
-                  project.canvas
-                    .widthMm
+                lengthMm={project.canvas.widthMm}
+                editorScale={editorScale}
+                onGuideDragStart={() => handleGuideDragStart("horizontal")}
+                onGuideDrag={(positionMm) =>
+                  handleGuideDrag("horizontal", positionMm)
                 }
-
-                editorScale={
-                  editorScale
-                }
-
-                onGuideDragStart={() =>
-                  handleGuideDragStart(
-                    "horizontal",
-                  )
-                }
-
-                onGuideDrag={(
-                  positionMm,
-                ) =>
-                  handleGuideDrag(
-                    "horizontal",
-                    positionMm,
-                  )
-                }
-
-                onGuideDragEnd={(
-                  positionMm,
-                ) =>
-                  handleGuideDragEnd(
-                    "horizontal",
-                    positionMm,
-                  )
+                onGuideDragEnd={(positionMm) =>
+                  handleGuideDragEnd("horizontal", positionMm)
                 }
               />
             </View>
 
-            <View
-              style={
-                styles.pageRow
-              }
-            >
+            <View style={styles.pageRow}>
               {/* LEFT RULER */}
 
               <CanvasRuler
                 orientation="vertical"
-
-                lengthMm={
-                  project.canvas
-                    .heightMm
+                lengthMm={project.canvas.heightMm}
+                editorScale={editorScale}
+                onGuideDragStart={() => handleGuideDragStart("vertical")}
+                onGuideDrag={(positionMm) =>
+                  handleGuideDrag("vertical", positionMm)
                 }
-
-                editorScale={
-                  editorScale
-                }
-
-                onGuideDragStart={() =>
-                  handleGuideDragStart(
-                    "vertical",
-                  )
-                }
-
-                onGuideDrag={(
-                  positionMm,
-                ) =>
-                  handleGuideDrag(
-                    "vertical",
-                    positionMm,
-                  )
-                }
-
-                onGuideDragEnd={(
-                  positionMm,
-                ) =>
-                  handleGuideDragEnd(
-                    "vertical",
-                    positionMm,
-                  )
+                onGuideDragEnd={(positionMm) =>
+                  handleGuideDragEnd("vertical", positionMm)
                 }
               />
 
@@ -2025,11 +1298,9 @@ export default function EditorScreen() {
                   styles.printCanvas,
 
                   {
-                    width:
-                      canvasDisplayWidth,
+                    width: canvasDisplayWidth,
 
-                    height:
-                      canvasDisplayHeight,
+                    height: canvasDisplayHeight,
                   },
 
                   transparent
@@ -2038,90 +1309,40 @@ export default function EditorScreen() {
                         styles.whiteCanvas,
 
                         {
-                          backgroundColor:
-                            canvasColor,
+                          backgroundColor: canvasColor,
                         },
                       ],
                 ]}
               >
-                {transparent && (
-                  <Checkerboard />
-                )}
+                {transparent && <Checkerboard />}
 
                 {/* STICKERS */}
 
-                {sortedStickers.map(
-                  (
-                    sticker,
-                  ) => (
-                    <StickerItem
-                      key={
-                        sticker.id
-                      }
-
-                      sticker={
-                        sticker
-                      }
-
-                      editorScale={
-                        editorScale
-                      }
-
-                      selected={
-                        sticker.id ===
-                        selectedStickerId
-                      }
-
-                      onSelect={
-                        setSelectedStickerId
-                      }
-
-                      onMove={
-                        handleStickerMove
-                      }
-
-                      onResize={
-                        handleStickerResize
-                      }
-
-                      onRotate={
-                        handleStickerRotate
-                      }
-
-                      interactionMode={
-                        activeTab ===
-                        "cutLine"
-                          ? "cutLine"
-                          : "transform"
-                      }
-                    />
-                  ),
-                )}
+                {sortedStickers.map((sticker) => (
+                  <StickerItem
+                    key={sticker.id}
+                    sticker={sticker}
+                    editorScale={editorScale}
+                    selected={sticker.id === selectedStickerId}
+                    onSelect={setSelectedStickerId}
+                    onMove={handleStickerMove}
+                    onResize={handleStickerResize}
+                    onRotate={handleStickerRotate}
+                    interactionMode={
+                      activeTab === "cutLine" ? "cutLine" : "transform"
+                    }
+                  />
+                ))}
 
                 {/* EMPTY CANVAS MESSAGE */}
 
-                {objectCount ===
-                  0 && (
-                  <View
-                    pointerEvents="none"
-
-                    style={
-                      styles.emptyCanvas
-                    }
-                  >
-                    <Text
-                      style={
-                        styles.emptyCanvasTitle
-                      }
-                    >
+                {objectCount === 0 && (
+                  <View pointerEvents="none" style={styles.emptyCanvas}>
+                    <Text style={styles.emptyCanvasTitle}>
                       ADD IMAGES TO BEGIN
                     </Text>
 
-                    <Text
-                      style={
-                        styles.emptyCanvasText
-                      }
-                    >
+                    <Text style={styles.emptyCanvasText}>
                       TAP + ADD OR PASTE
                     </Text>
                   </View>
@@ -2129,67 +1350,37 @@ export default function EditorScreen() {
 
                 {/* SAVED GUIDES */}
 
-                {(
-                  project.guides ??
-                  []
-                ).map(
-                  (guide) => (
-                    <GuideLine
-                      key={
-                        guide.id
-                      }
-
-                      guide={
-                        guide
-                      }
-
-                      pageLengthMm={
-                        guide.axis ===
-                        "horizontal"
-                          ? project.canvas
-                              .widthMm
-                          : project.canvas
-                              .heightMm
-                      }
-
-                      editorScale={
-                        editorScale
-                      }
-
-                      onMove={
-                        handleMoveGuide
-                      }
-
-                      onDelete={
-                        handleDeleteGuide
-                      }
-                    />
-                  ),
-                )}
+                {(project.guides ?? []).map((guide) => (
+                  <GuideLine
+                    key={guide.id}
+                    guide={guide}
+                    pageLengthMm={
+                      guide.axis === "horizontal"
+                        ? project.canvas.widthMm
+                        : project.canvas.heightMm
+                    }
+                    editorScale={editorScale}
+                    onMove={handleMoveGuide}
+                    onDelete={handleDeleteGuide}
+                  />
+                ))}
 
                 {/* GUIDE CURRENTLY BEING DRAGGED */}
 
                 {draftGuide && (
                   <View
                     pointerEvents="none"
-
                     style={[
-                      draftGuide.axis ===
-                      "horizontal"
+                      draftGuide.axis === "horizontal"
                         ? styles.draftGuideHorizontal
                         : styles.draftGuideVertical,
 
-                      draftGuide.axis ===
-                      "horizontal"
+                      draftGuide.axis === "horizontal"
                         ? {
-                            top:
-                              draftGuide.positionMm *
-                              editorScale,
+                            top: draftGuide.positionMm * editorScale,
                           }
                         : {
-                            left:
-                              draftGuide.positionMm *
-                              editorScale,
+                            left: draftGuide.positionMm * editorScale,
                           },
                     ]}
                   />
@@ -2203,66 +1394,29 @@ export default function EditorScreen() {
             CANVAS INFORMATION
         ====================================================== */}
 
-        <View
-          style={
-            styles.canvasInfoBar
-          }
-        >
-          <Text
-            style={
-              styles.canvasInfoText
-            }
-          >
-            {project.canvas.presetId.toUpperCase()}{" "}
-            ·{" "}
-            {
-              project.canvas
-                .widthMm
-            }
-            ×
-            {
-              project.canvas
-                .heightMm
-            }
+        <View style={styles.canvasInfoBar}>
+          <Text style={styles.canvasInfoText}>
+            {project.canvas.presetId.toUpperCase()} · {project.canvas.widthMm}×
+            {project.canvas.heightMm}
             mm
           </Text>
 
           <View
             style={{
-              flexDirection:
-                "row",
+              flexDirection: "row",
 
-              alignItems:
-                "center",
+              alignItems: "center",
 
-              gap:
-                12,
+              gap: 12,
             }}
           >
-            <Text
-              style={
-                styles.canvasInfoBadge
-              }
-            >
-              {transparent
-                ? "TRANSPARENT"
-                : "SOLID"}
+            <Text style={styles.canvasInfoBadge}>
+              {transparent ? "TRANSPARENT" : "SOLID"}
             </Text>
 
-            {objectCount >
-              0 && (
-              <TouchableOpacity
-                onPress={
-                  handlePreview
-                }
-              >
-                <Text
-                  style={
-                    styles.canvasInfoBadge
-                  }
-                >
-                  PREVIEW →
-                </Text>
+            {objectCount > 0 && (
+              <TouchableOpacity onPress={handlePreview}>
+                <Text style={styles.canvasInfoBadge}>PREVIEW →</Text>
               </TouchableOpacity>
             )}
           </View>
@@ -2276,142 +1430,80 @@ export default function EditorScreen() {
             implemented yet.
         ====================================================== */}
 
-        {selectedStickerId &&
-          activeSticker && (
-            <View
-              style={
-                styles.selectionActionsRow
-              }
+        {selectedStickerId && activeSticker && (
+          <View style={styles.selectionActionsRow}>
+            <TouchableOpacity
+              style={[
+                styles.selectionActionButton,
+
+                !(activeSticker.aspectLocked ?? true) &&
+                  styles.selectionActionButtonActive,
+              ]}
+              onPress={handleToggleAspectLocked}
             >
-              <TouchableOpacity
+              <Text
                 style={[
-                  styles.selectionActionButton,
+                  styles.selectionActionText,
 
-                  !(
-                    activeSticker.aspectLocked ??
-                    true
-                  ) &&
-                    styles.selectionActionButtonActive,
+                  !(activeSticker.aspectLocked ?? true) &&
+                    styles.selectionActionTextActive,
                 ]}
-
-                onPress={
-                  handleToggleAspectLocked
-                }
               >
-                <Text
-                  style={[
-                    styles.selectionActionText,
+                Ratio {(activeSticker.aspectLocked ?? true) ? "✓" : "Free"}
+              </Text>
+            </TouchableOpacity>
 
-                    !(
-                      activeSticker.aspectLocked ??
-                      true
-                    ) &&
-                      styles.selectionActionTextActive,
-                  ]}
-                >
-                  Ratio{" "}
-                  {(
-                    activeSticker.aspectLocked ??
-                    true
-                  )
-                    ? "✓"
-                    : "Free"}
-                </Text>
-              </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.selectionActionButton}
+              onPress={handleRevertSelected}
+            >
+              <Text style={styles.selectionActionText}>Revert</Text>
+            </TouchableOpacity>
 
-              <TouchableOpacity
-                style={
-                  styles.selectionActionButton
-                }
+            <TouchableOpacity
+              style={styles.selectionActionButton}
+              onPress={() => handleDuplicateSticker(selectedStickerId)}
+            >
+              <Text style={styles.selectionActionText}>Duplicate</Text>
+            </TouchableOpacity>
 
-                onPress={
-                  handleRevertSelected
-                }
-              >
-                <Text
-                  style={
-                    styles.selectionActionText
-                  }
-                >
-                  Revert
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={
-                  styles.selectionActionButton
-                }
-
-                onPress={() =>
-                  handleDuplicateSticker(
-                    selectedStickerId,
-                  )
-                }
-              >
-                <Text
-                  style={
-                    styles.selectionActionText
-                  }
-                >
-                  Duplicate
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
+            <TouchableOpacity
+              style={[
+                styles.selectionActionButton,
+                styles.selectionActionButtonDanger,
+              ]}
+              onPress={() => handleDeleteSticker(selectedStickerId)}
+            >
+              <Text
                 style={[
-                  styles.selectionActionButton,
-                  styles.selectionActionButtonDanger,
+                  styles.selectionActionText,
+                  styles.selectionActionTextDanger,
                 ]}
-
-                onPress={() =>
-                  handleDeleteSticker(
-                    selectedStickerId,
-                  )
-                }
               >
-                <Text
-                  style={[
-                    styles.selectionActionText,
-                    styles.selectionActionTextDanger,
-                  ]}
-                >
-                  Delete
-                </Text>
-              </TouchableOpacity>
-            </View>
-          )}
+                Delete
+              </Text>
+            </TouchableOpacity>
+          </View>
+        )}
 
         {/* =====================================================
             CANVAS / CUT LINE TABS
         ====================================================== */}
 
-        <View
-          style={
-            styles.tabRow
-          }
-        >
+        <View style={styles.tabRow}>
           <TouchableOpacity
             style={[
               styles.tabButton,
 
-              activeTab ===
-                "canvas" &&
-                styles.tabButtonSelected,
+              activeTab === "canvas" && styles.tabButtonSelected,
             ]}
-
-            onPress={() =>
-              setActiveTab(
-                "canvas",
-              )
-            }
+            onPress={() => setActiveTab("canvas")}
           >
             <Text
               style={[
                 styles.tabButtonText,
 
-                activeTab ===
-                  "canvas" &&
-                  styles.tabButtonTextSelected,
+                activeTab === "canvas" && styles.tabButtonTextSelected,
               ]}
             >
               CANVAS
@@ -2422,24 +1514,15 @@ export default function EditorScreen() {
             style={[
               styles.tabButton,
 
-              activeTab ===
-                "cutLine" &&
-                styles.tabButtonSelected,
+              activeTab === "cutLine" && styles.tabButtonSelected,
             ]}
-
-            onPress={() =>
-              setActiveTab(
-                "cutLine",
-              )
-            }
+            onPress={() => setActiveTab("cutLine")}
           >
             <Text
               style={[
                 styles.tabButtonText,
 
-                activeTab ===
-                  "cutLine" &&
-                  styles.tabButtonTextSelected,
+                activeTab === "cutLine" && styles.tabButtonTextSelected,
               ]}
             >
               CUT LINE
@@ -2451,79 +1534,39 @@ export default function EditorScreen() {
             CANVAS TAB
         ====================================================== */}
 
-        {activeTab ===
-        "canvas" ? (
+        {activeTab === "canvas" ? (
           <ScrollView
-            style={
-              styles.tabScroll
-            }
-
-            contentContainerStyle={
-              styles.tabPanel
-            }
-
+            style={styles.tabScroll}
+            contentContainerStyle={styles.tabPanel}
             keyboardShouldPersistTaps="handled"
           >
             {/* ADD IMAGE */}
 
             <TouchableOpacity
-              style={
-                styles.addImageButton
-              }
-
-              onPress={
-                handleAddToCanvas
-              }
-
-              disabled={
-                isImporting
-              }
+              style={styles.addImageButton}
+              onPress={handleAddToCanvas}
+              disabled={isImporting}
             >
-              <Text
-                style={
-                  styles.addImageIcon
-                }
-              >
-                ＋
+              <Text style={styles.addImageIcon}>＋</Text>
+
+              <Text style={styles.addImageText}>
+                {isImporting ? "Adding..." : "Add image"}
               </Text>
 
-              <Text
-                style={
-                  styles.addImageText
-                }
-              >
-                {isImporting
-                  ? "Adding..."
-                  : "Add image"}
-              </Text>
-
-              <Text
-                style={
-                  styles.addImageSubtext
-                }
-              >
-                · Upload or Paste
-              </Text>
+              <Text style={styles.addImageSubtext}>· Upload or Paste</Text>
             </TouchableOpacity>
 
             {/* CANVAS BACKGROUND */}
 
             <View>
-              <Text
-                style={
-                  styles.sectionLabel
-                }
-              >
-                CANVAS BACKGROUND
-              </Text>
+              <Text style={styles.sectionLabel}>CANVAS BACKGROUND</Text>
 
               <View
                 style={[
                   styles.backgroundToggleRow,
 
                   {
-                    marginTop:
-                      8,
+                    marginTop: 8,
                   },
                 ]}
               >
@@ -2531,35 +1574,23 @@ export default function EditorScreen() {
                   style={[
                     styles.backgroundToggleOption,
 
-                    !transparent &&
-                      styles.backgroundToggleOptionSelected,
+                    !transparent && styles.backgroundToggleOptionSelected,
                   ]}
-
-                  onPress={() =>
-                    handleSetBackground(
-                      "white",
-                    )
-                  }
+                  onPress={() => handleSetBackground("white")}
                 >
                   <View
                     style={{
-                      width:
-                        30,
+                      width: 30,
 
-                      height:
-                        16,
+                      height: 16,
 
-                      marginBottom:
-                        5,
+                      marginBottom: 5,
 
-                      borderWidth:
-                        1,
+                      borderWidth: 1,
 
-                      borderColor:
-                        Colors.border,
+                      borderColor: Colors.border,
 
-                      backgroundColor:
-                        canvasColor,
+                      backgroundColor: canvasColor,
                     }}
                   />
 
@@ -2567,8 +1598,7 @@ export default function EditorScreen() {
                     style={[
                       styles.backgroundToggleText,
 
-                      !transparent &&
-                        styles.backgroundToggleTextSelected,
+                      !transparent && styles.backgroundToggleTextSelected,
                     ]}
                   >
                     Solid
@@ -2579,15 +1609,9 @@ export default function EditorScreen() {
                   style={[
                     styles.backgroundToggleOption,
 
-                    transparent &&
-                      styles.backgroundToggleOptionSelected,
+                    transparent && styles.backgroundToggleOptionSelected,
                   ]}
-
-                  onPress={() =>
-                    handleSetBackground(
-                      "transparent",
-                    )
-                  }
+                  onPress={() => handleSetBackground("transparent")}
                 >
                   <MiniCheckerboard />
 
@@ -2595,8 +1619,7 @@ export default function EditorScreen() {
                     style={[
                       styles.backgroundToggleText,
 
-                      transparent &&
-                        styles.backgroundToggleTextSelected,
+                      transparent && styles.backgroundToggleTextSelected,
                     ]}
                   >
                     Transparent
@@ -2609,195 +1632,95 @@ export default function EditorScreen() {
 
             {!transparent && (
               <View>
-                <Text
-                  style={
-                    styles.sectionLabel
-                  }
-                >
-                  COLOR
-                </Text>
+                <Text style={styles.sectionLabel}>COLOR</Text>
 
                 <View
                   style={[
                     styles.colorSwatchRow,
 
                     {
-                      marginTop:
-                        8,
+                      marginTop: 8,
                     },
                   ]}
                 >
-                  {CANVAS_COLOR_SWATCHES.map(
-                    (
-                      swatch,
-                    ) => (
-                      <TouchableOpacity
-                        key={
-                          swatch.id
-                        }
+                  {CANVAS_COLOR_SWATCHES.map((swatch) => (
+                    <TouchableOpacity
+                      key={swatch.id}
+                      accessibilityLabel={swatch.id}
+                      onPress={() => handleSetCanvasColor(swatch.value)}
+                      style={[
+                        styles.colorSwatch,
 
-                        accessibilityLabel={
-                          swatch.id
-                        }
+                        {
+                          backgroundColor: swatch.value,
+                        },
 
-                        onPress={() =>
-                          handleSetCanvasColor(
-                            swatch.value,
-                          )
-                        }
-
-                        style={[
-                          styles.colorSwatch,
-
-                          {
-                            backgroundColor:
-                              swatch.value,
-                          },
-
-                          canvasColor ===
-                            swatch.value &&
-                            styles.colorSwatchSelected,
-                        ]}
-                      />
-                    ),
-                  )}
+                        canvasColor === swatch.value &&
+                          styles.colorSwatchSelected,
+                      ]}
+                    />
+                  ))}
                 </View>
               </View>
             )}
 
             {/* OBJECTS */}
 
-            {objectCount >
-              0 && (
+            {objectCount > 0 && (
               <View>
-                <View
-                  style={
-                    styles.objectsHeaderRow
-                  }
-                >
-                  <Text
-                    style={
-                      styles.sectionLabel
-                    }
-                  >
-                    OBJECTS —{" "}
-                    {
-                      objectCount
-                    }
+                <View style={styles.objectsHeaderRow}>
+                  <Text style={styles.sectionLabel}>
+                    OBJECTS — {objectCount}
                   </Text>
                 </View>
 
                 <View
                   style={{
-                    gap:
-                      8,
+                    gap: 8,
 
-                    marginTop:
-                      8,
+                    marginTop: 8,
                   }}
                 >
-                  {[
-                    ...sortedStickers,
-                  ]
-                    .reverse()
-                    .map(
-                      (
-                        sticker,
-                      ) => (
-                        <TouchableOpacity
-                          key={
-                            sticker.id
-                          }
+                  {[...sortedStickers].reverse().map((sticker) => (
+                    <TouchableOpacity
+                      key={sticker.id}
+                      style={[
+                        styles.objectRow,
 
-                          style={[
-                            styles.objectRow,
+                        sticker.id === selectedStickerId &&
+                          styles.objectRowSelected,
+                      ]}
+                      onPress={() => setSelectedStickerId(sticker.id)}
+                    >
+                      <Image
+                        source={{
+                          uri: sticker.processedUri ?? sticker.sourceUri,
+                        }}
+                        style={styles.objectThumb}
+                        contentFit="contain"
+                      />
 
-                            sticker.id ===
-                              selectedStickerId &&
-                              styles.objectRowSelected,
-                          ]}
+                      <Text style={styles.objectRowLabel} numberOfLines={1}>
+                        {sticker.widthMm.toFixed(1)}×
+                        {sticker.heightMm.toFixed(1)}
+                        mm
+                      </Text>
 
-                          onPress={() =>
-                            setSelectedStickerId(
-                              sticker.id,
-                            )
-                          }
-                        >
-                          <Image
-                            source={{
-                              uri:
-                                sticker.processedUri ??
-                                sticker.sourceUri,
-                            }}
+                      <TouchableOpacity
+                        style={styles.objectRowIconButton}
+                        onPress={() => handleDuplicateSticker(sticker.id)}
+                      >
+                        <Text style={styles.objectRowIconText}>⧉</Text>
+                      </TouchableOpacity>
 
-                            style={
-                              styles.objectThumb
-                            }
-
-                            contentFit="contain"
-                          />
-
-                          <Text
-                            style={
-                              styles.objectRowLabel
-                            }
-
-                            numberOfLines={
-                              1
-                            }
-                          >
-                            {sticker.widthMm.toFixed(
-                              1,
-                            )}
-                            ×
-                            {sticker.heightMm.toFixed(
-                              1,
-                            )}
-                            mm
-                          </Text>
-
-                          <TouchableOpacity
-                            style={
-                              styles.objectRowIconButton
-                            }
-
-                            onPress={() =>
-                              handleDuplicateSticker(
-                                sticker.id,
-                              )
-                            }
-                          >
-                            <Text
-                              style={
-                                styles.objectRowIconText
-                              }
-                            >
-                              ⧉
-                            </Text>
-                          </TouchableOpacity>
-
-                          <TouchableOpacity
-                            style={
-                              styles.objectRowIconButton
-                            }
-
-                            onPress={() =>
-                              handleDeleteSticker(
-                                sticker.id,
-                              )
-                            }
-                          >
-                            <Text
-                              style={
-                                styles.objectRowDeleteText
-                              }
-                            >
-                              ×
-                            </Text>
-                          </TouchableOpacity>
-                        </TouchableOpacity>
-                      ),
-                    )}
+                      <TouchableOpacity
+                        style={styles.objectRowIconButton}
+                        onPress={() => handleDeleteSticker(sticker.id)}
+                      >
+                        <Text style={styles.objectRowDeleteText}>×</Text>
+                      </TouchableOpacity>
+                    </TouchableOpacity>
+                  ))}
                 </View>
               </View>
             )}
@@ -2808,192 +1731,112 @@ export default function EditorScreen() {
           ==================================================== */
 
           <ScrollView
-            style={
-              styles.tabScroll
-            }
-
-            contentContainerStyle={
-              styles.tabPanel
-            }
+            style={styles.tabScroll}
+            contentContainerStyle={styles.tabPanel}
           >
             {!activeSticker ? (
-              <View
-                style={
-                  styles.cutLinePlaceholder
-                }
-              >
-                <Text
-                  style={
-                    styles.cutLinePlaceholderText
-                  }
-                >
+              <View style={styles.cutLinePlaceholder}>
+                <Text style={styles.cutLinePlaceholderText}>
                   Select a sticker to edit its cut-line preview.
                 </Text>
               </View>
             ) : (
               <>
                 <View>
-                  <Text
-                    style={
-                      styles.sectionLabel
-                    }
-                  >
-                    CUT SHAPE
-                  </Text>
+                  <Text style={styles.sectionLabel}>CUT SHAPE</Text>
 
                   <View
                     style={[
                       styles.cutShapeRow,
 
                       {
-                        marginTop:
-                          8,
+                        marginTop: 8,
                       },
                     ]}
                   >
-                    {CUT_SHAPE_OPTIONS.map(
-                      (
-                        option,
-                      ) => {
-                        const selectedShape =
-                          activeSticker
-                            .cutLine
-                            .shape ??
-                          DEFAULT_CUT_LINE_SHAPE;
+                    {CUT_SHAPE_OPTIONS.map((option) => {
+                      const selectedShape =
+                        activeSticker.cutLine.shape ?? DEFAULT_CUT_LINE_SHAPE;
 
-                        const selected =
-                          selectedShape ===
-                          option.id;
+                      const selected = selectedShape === option.id;
 
-                        return (
-                          <TouchableOpacity
-                            key={
-                              option.id
-                            }
+                      return (
+                        <TouchableOpacity
+                          key={option.id}
+                          style={[
+                            styles.cutShapeOption,
 
+                            selected && styles.cutShapeOptionSelected,
+                          ]}
+                          onPress={() => handleSetCutLineShape(option.id)}
+                        >
+                          <Text
                             style={[
-                              styles.cutShapeOption,
+                              styles.cutShapeLabel,
 
-                              selected &&
-                                styles.cutShapeOptionSelected,
+                              selected && styles.cutShapeLabelSelected,
                             ]}
-
-                            onPress={() =>
-                              handleSetCutLineShape(
-                                option.id,
-                              )
-                            }
                           >
-                            <Text
-                              style={[
-                                styles.cutShapeLabel,
+                            {option.label}
+                          </Text>
 
-                                selected &&
-                                  styles.cutShapeLabelSelected,
-                              ]}
-                            >
-                              {
-                                option.label
-                              }
-                            </Text>
-
-                            <Text
-                              style={
-                                styles.cutShapeHint
-                              }
-                            >
-                              {
-                                option.hint
-                              }
-                            </Text>
-                          </TouchableOpacity>
-                        );
-                      },
-                    )}
+                          <Text style={styles.cutShapeHint}>{option.hint}</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
                   </View>
 
-                  {(
-                    activeSticker
-                      .cutLine
-                      .shape ??
-                    DEFAULT_CUT_LINE_SHAPE
-                  ) ===
+                  {(activeSticker.cutLine.shape ?? DEFAULT_CUT_LINE_SHAPE) ===
                     "tight" && (
                     <Text
                       style={[
                         styles.cutLineNote,
 
                         {
-                          marginTop:
-                            7,
+                          marginTop: 7,
                         },
                       ]}
                     >
-                      Tight contour tracing is not implemented yet. This is currently only a preview mode.
+                      Tight contour tracing is not implemented yet. This is
+                      currently only a preview mode.
                     </Text>
                   )}
                 </View>
 
                 <View>
-                  <Text
-                    style={
-                      styles.sectionLabel
-                    }
-                  >
-                    LINE COLOR
-                  </Text>
+                  <Text style={styles.sectionLabel}>LINE COLOR</Text>
 
                   <View
                     style={[
                       styles.colorSwatchRow,
 
                       {
-                        marginTop:
-                          8,
+                        marginTop: 8,
                       },
                     ]}
                   >
-                    {CUT_LINE_COLOR_SWATCHES.map(
-                      (
-                        swatch,
-                      ) => {
-                        const selectedColor =
-                          activeSticker
-                            .cutLine
-                            .color ??
-                          DEFAULT_CUT_LINE_COLOR;
+                    {CUT_LINE_COLOR_SWATCHES.map((swatch) => {
+                      const selectedColor =
+                        activeSticker.cutLine.color ?? DEFAULT_CUT_LINE_COLOR;
 
-                        const selected =
-                          selectedColor ===
-                          swatch.value;
+                      const selected = selectedColor === swatch.value;
 
-                        return (
-                          <TouchableOpacity
-                            key={
-                              swatch.id
-                            }
+                      return (
+                        <TouchableOpacity
+                          key={swatch.id}
+                          onPress={() => handleSetCutLineColor(swatch.value)}
+                          style={[
+                            styles.colorSwatch,
 
-                            onPress={() =>
-                              handleSetCutLineColor(
-                                swatch.value,
-                              )
-                            }
+                            {
+                              backgroundColor: swatch.value,
+                            },
 
-                            style={[
-                              styles.colorSwatch,
-
-                              {
-                                backgroundColor:
-                                  swatch.value,
-                              },
-
-                              selected &&
-                                styles.colorSwatchSelected,
-                            ]}
-                          />
-                        );
-                      },
-                    )}
+                            selected && styles.colorSwatchSelected,
+                          ]}
+                        />
+                      );
+                    })}
                   </View>
                 </View>
               </>
@@ -3010,87 +1853,43 @@ export default function EditorScreen() {
 // ============================================================
 
 function Checkerboard() {
-  const columns =
-    12;
+  const columns = 12;
 
-  const rows =
-    16;
+  const rows = 16;
 
-  const cells =
-    Array.from({
-      length:
-        columns *
-        rows,
-    });
+  const cells = Array.from({
+    length: columns * rows,
+  });
 
   return (
-    <View
-      pointerEvents="none"
+    <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+      <View style={styles.checkerboard}>
+        {cells.map((_, index) => {
+          const row = Math.floor(index / columns);
 
-      style={
-        StyleSheet.absoluteFill
-      }
-    >
-      <View
-        style={
-          styles.checkerboard
-        }
-      >
-        {cells.map(
-          (
-            _,
-            index,
-          ) => {
-            const row =
-              Math.floor(
-                index /
-                  columns,
-              );
+          const column = index % columns;
 
-            const column =
-              index %
-              columns;
+          const dark = (row + column) % 2 === 0;
 
-            const dark =
-              (
-                row +
-                column
-              ) %
-                2 ===
-              0;
+          return (
+            <View
+              key={index}
+              style={[
+                styles.checkerCell,
 
-            return (
-              <View
-                key={
-                  index
-                }
+                {
+                  width: `${100 / columns}%`,
 
-                style={[
-                  styles.checkerCell,
+                  height: `${100 / rows}%`,
 
-                  {
-                    width:
-                      `${
-                        100 /
-                        columns
-                      }%`,
-
-                    height:
-                      `${
-                        100 /
-                        rows
-                      }%`,
-
-                    backgroundColor:
-                      dark
-                        ? Colors.checkerDark
-                        : Colors.checkerLight,
-                  },
-                ]}
-              />
-            );
-          },
-        )}
+                  backgroundColor: dark
+                    ? Colors.checkerDark
+                    : Colors.checkerLight,
+                },
+              ]}
+            />
+          );
+        })}
       </View>
     </View>
   );
@@ -3103,70 +1902,40 @@ function MiniCheckerboard() {
   return (
     <View
       style={{
-        width:
-          30,
+        width: 30,
 
-        height:
-          16,
+        height: 16,
 
-        flexDirection:
-          "row",
+        flexDirection: "row",
 
-        flexWrap:
-          "wrap",
+        flexWrap: "wrap",
 
-        marginBottom:
-          5,
+        marginBottom: 5,
 
-        overflow:
-          "hidden",
+        overflow: "hidden",
 
-        borderWidth:
-          1,
+        borderWidth: 1,
 
-        borderColor:
-          Colors.border,
+        borderColor: Colors.border,
       }}
     >
       {Array.from({
-        length:
-          8,
-      }).map(
-        (
-          _,
-          index,
-        ) => (
-          <View
-            key={
-              index
-            }
+        length: 8,
+      }).map((_, index) => (
+        <View
+          key={index}
+          style={{
+            width: "25%",
 
-            style={{
-              width:
-                "25%",
+            height: "50%",
 
-              height:
-                "50%",
-
-              backgroundColor:
-                (
-                  Math.floor(
-                    index /
-                      4,
-                  ) +
-                  (
-                    index %
-                    4
-                  )
-                ) %
-                  2 ===
-                0
-                  ? Colors.checkerLight
-                  : Colors.checkerDark,
-            }}
-          />
-        ),
-      )}
+            backgroundColor:
+              (Math.floor(index / 4) + (index % 4)) % 2 === 0
+                ? Colors.checkerLight
+                : Colors.checkerDark,
+          }}
+        />
+      ))}
     </View>
   );
 }

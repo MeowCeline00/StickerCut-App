@@ -1,5 +1,37 @@
-import type { CanvasSettings } from './canvas';
-import type { StickerObject } from './sticker';
+import type {
+  CanvasSettings,
+} from "./canvas";
+
+import type {
+  StickerObject,
+} from "./sticker";
+
+export type ThemeId =
+  | "dark"
+  | "light"
+  | "pink";
+
+export interface CanvasGuide {
+  id: string;
+
+  /**
+   * horizontal:
+   * runs from left → right and stores its Y position.
+   *
+   * vertical:
+   * runs from top → bottom and stores its X position.
+   */
+  axis:
+    | "horizontal"
+    | "vertical";
+
+  /**
+   * Position from the printable page's 0/0 origin.
+   *
+   * Always stored in millimeters.
+   */
+  positionMm: number;
+}
 
 export interface StickerProject {
   id: string;
@@ -7,43 +39,23 @@ export interface StickerProject {
   name: string;
 
   createdAt: number;
+
   updatedAt: number;
 
-  canvas: CanvasSettings;
+  canvas:
+    CanvasSettings;
 
-  stickers: StickerObject[];
-
-  /**
-   * Reference guides dragged out from the rulers — editor-only aids,
-   * never rendered in preview.tsx or any future export/print output.
-   * Optional/additive so projects saved before guides existed still
-   * load with none.
-   */
-  guides?: CanvasGuide[];
+  stickers:
+    StickerObject[];
 
   /**
-   * Interface theme chosen at project creation (see new-project.tsx).
-   * Optional/additive; only "light" is actually implemented right
-   * now — see src/constants/themes.ts for the honest status of the
-   * other two.
+   * Editor-only.
+   *
+   * Preview/print/export must not render these.
    */
-  themeId?: ThemeId;
-}
+  guides?:
+    CanvasGuide[];
 
-export type ThemeId = "dark" | "light" | "pink";
-
-// Renamed from Guide to CanvasGuide (CRITICAL FIX 8) — same shape.
-export interface CanvasGuide {
-  id: string;
-
-  /**
-   * "horizontal" guides run left-to-right across the page (dragged out
-   * of the TOP ruler) and are positioned by Y. "vertical" guides run
-   * top-to-bottom (dragged out of the LEFT ruler) and are positioned
-   * by X.
-   */
-  axis: "horizontal" | "vertical";
-
-  /** Position along the perpendicular axis, in mm from the page origin. */
-  positionMm: number;
+  themeId?:
+    ThemeId;
 }
