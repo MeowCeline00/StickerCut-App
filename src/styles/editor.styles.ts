@@ -168,7 +168,7 @@ export const styles = StyleSheet.create({
   },
 
   emptyCanvas: {
-    ...StyleSheet.absoluteFillObject,
+  ...StyleSheet.absoluteFill,
     justifyContent: 'center',
     alignItems: 'center',
   },

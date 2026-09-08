@@ -1,53 +1,147 @@
-import { Text, View } from "react-native";
-import Animated, { type useAnimatedStyle } from "react-native-reanimated";
-import type { GestureType } from "react-native-gesture-handler";
-import { GestureDetector } from "react-native-gesture-handler";
+import type { ComponentProps } from "react";
 
-import { DEFAULT_CUT_LINE_COLOR, DEFAULT_CUT_LINE_SHAPE } from "@/constants/cut-line";
-import type { StickerObject } from "@/types/sticker";
+import {
+  Text,
+  View,
+} from "react-native";
 
-import { styles } from "./StickerItem.styles";
+import Animated from "react-native-reanimated";
 
-// Below this, print quality visibly suffers because the source image
-// has fewer pixels than the print size needs — see StickerItem.tsx.
-const LOW_PPI_WARNING_THRESHOLD = 150;
+import type {
+  GestureType,
+} from "react-native-gesture-handler";
+
+import {
+  GestureDetector,
+} from "react-native-gesture-handler";
+
+import {
+  DEFAULT_CUT_LINE_COLOR,
+  DEFAULT_CUT_LINE_SHAPE,
+} from "@/constants/cut-line";
+
+import type {
+  StickerObject,
+} from "@/types/sticker";
+
+import {
+  styles,
+} from "./StickerItem.styles";
+
+/**
+ * Use the exact style-prop type accepted by Animated.View.
+ *
+ * The previous version used:
+ *
+ * ReturnType<typeof useAnimatedStyle>
+ *
+ * With Reanimated 4 this loses the concrete ViewStyle generic and
+ * becomes AnimatedStyleHandle<DefaultStyle>, which TypeScript then
+ * refuses to pass into Animated.View.
+ *
+ * Deriving the type directly from Animated.View keeps it synchronized
+ * with the version of Reanimated actually installed in this project.
+ */
+type AnimatedViewStyle =
+  ComponentProps<
+    typeof Animated.View
+  >["style"];
+
+const LOW_PPI_WARNING_THRESHOLD =
+  150;
 
 interface SelectionBadgesProps {
   sticker: StickerObject;
-  sourcePpi: number | null;
+
+  sourcePpi:
+    | number
+    | null;
 }
 
 /**
- * The bounding-box border + dimension/rotation/background-status
- * labels, rendered as CHILDREN of StickerItem's visualBox (so they
- * scale/rotate with it). Purely presentational — StickerItem still
- * owns all gesture/geometry state, this just reads the finished
- * values off the sticker prop.
+ * Displays CAD-style information around the selected sticker.
+ *
+ * This component is presentational only.
+ * Gesture logic remains inside StickerItem.tsx.
  */
-export function SelectionBadges({ sticker, sourcePpi }: SelectionBadgesProps) {
+export function SelectionBadges({
+  sticker,
+  sourcePpi,
+}: SelectionBadgesProps) {
   return (
-    <View style={styles.selectionOverlay} pointerEvents="none">
-      <View style={styles.dimensionLabel}>
-        <Text style={styles.dimensionLabelText}>
-          {sticker.widthMm.toFixed(1)} × {sticker.heightMm.toFixed(1)} mm
-          {sourcePpi !== null && (
+    <View
+      style={
+        styles.selectionOverlay
+      }
+      pointerEvents="none"
+    >
+      <View
+        style={
+          styles.dimensionLabel
+        }
+      >
+        <Text
+          style={
+            styles.dimensionLabelText
+          }
+        >
+          {sticker.widthMm.toFixed(
+            1,
+          )}{" "}
+          ×{" "}
+          {sticker.heightMm.toFixed(
+            1,
+          )}{" "}
+          mm
+
+          {sourcePpi !==
+            null && (
             <Text
-              style={sourcePpi < LOW_PPI_WARNING_THRESHOLD ? styles.dimensionLabelWarning : undefined}
+              style={
+                sourcePpi <
+                LOW_PPI_WARNING_THRESHOLD
+                  ? styles.dimensionLabelWarning
+                  : undefined
+              }
             >
               {"  ·  "}
-              {Math.round(sourcePpi)} PPI
-              {sourcePpi < LOW_PPI_WARNING_THRESHOLD ? " (low)" : ""}
+              {Math.round(
+                sourcePpi,
+              )}{" "}
+              PPI
+              {sourcePpi <
+              LOW_PPI_WARNING_THRESHOLD
+                ? " (low)"
+                : ""}
             </Text>
           )}
         </Text>
 
-        <Text style={styles.dimensionLabelText}>{Math.round(sticker.rotation)}°</Text>
+        <Text
+          style={
+            styles.dimensionLabelText
+          }
+        >
+          {Math.round(
+            sticker.rotation,
+          )}
+          °
+        </Text>
 
-        {/* Background removal isn't implemented yet — this always
-            reads ORIGINAL BG today. Shown unconditionally, honestly,
-            rather than leaving you guessing whether it silently ran. */}
-        <Text style={styles.backgroundBadgeText}>
-          {sticker.backgroundRemoved ? "BG REMOVED" : "ORIGINAL BG"}
+        {/*
+          Background removal is not actually implemented yet.
+
+          This label reflects the real StickerObject state instead of
+          pretending that processing has occurred.
+        */}
+        <Text
+          style={
+            styles.backgroundBadgeText
+          }
+        >
+          {sticker.backgroundRemoved
+            ? "BG REMOVED"
+            : "ORIGINAL BG"}
         </Text>
       </View>
     </View>
@@ -59,21 +153,35 @@ interface CutLinePreviewProps {
 }
 
 /**
- * An honest APPROXIMATION of the future cut path — a colored outline
- * in the chosen shape/color, not a real traced contour. Shown instead
- * of SelectionBadges when the Cut Line tab is active for this sticker.
+ * Temporary visual cut-line preview.
+ *
+ * This is NOT the final contour-tracing implementation.
  */
-export function CutLinePreview({ sticker }: CutLinePreviewProps) {
-  const shape = sticker.cutLine.shape ?? DEFAULT_CUT_LINE_SHAPE;
-  const color = sticker.cutLine.color ?? DEFAULT_CUT_LINE_COLOR;
+export function CutLinePreview({
+  sticker,
+}: CutLinePreviewProps) {
+  const shape =
+    sticker.cutLine.shape ??
+    DEFAULT_CUT_LINE_SHAPE;
+
+  const color =
+    sticker.cutLine.color ??
+    DEFAULT_CUT_LINE_COLOR;
 
   return (
     <View
       pointerEvents="none"
       style={[
         styles.cutLinePreviewOverlay,
-        shape === "rect" ? styles.cutLinePreviewRect : styles.cutLinePreviewRound,
-        { borderColor: color },
+
+        shape === "rect"
+          ? styles.cutLinePreviewRect
+          : styles.cutLinePreviewRound,
+
+        {
+          borderColor:
+            color,
+        },
       ]}
     />
   );
@@ -81,45 +189,76 @@ export function CutLinePreview({ sticker }: CutLinePreviewProps) {
 
 interface SelectionHandlesProps {
   width: number;
+
   height: number;
-  resizeTouchTargetMargin: number;
-  rotateHandleGap: number;
-  halfTouchTarget: number;
-  topLeftHandleStyle: ReturnType<typeof useAnimatedStyle>;
-  topRightHandleStyle: ReturnType<typeof useAnimatedStyle>;
-  bottomLeftHandleStyle: ReturnType<typeof useAnimatedStyle>;
-  bottomRightHandleStyle: ReturnType<typeof useAnimatedStyle>;
-  rotateHandleStyle: ReturnType<typeof useAnimatedStyle>;
-  resizeTopLeftGesture: GestureType;
-  resizeTopRightGesture: GestureType;
-  resizeBottomLeftGesture: GestureType;
-  resizeBottomRightGesture: GestureType;
-  rotateGesture: GestureType;
+
+  resizeTouchTargetMargin:
+    number;
+
+  rotateHandleGap:
+    number;
+
+  halfTouchTarget:
+    number;
+
+  /*
+   * These use Animated.View's own style prop type.
+   *
+   * This fixes the Reanimated 4 TypeScript errors that were previously
+   * caused by AnimatedStyleHandle<DefaultStyle>.
+   */
+  topLeftHandleStyle:
+    AnimatedViewStyle;
+
+  topRightHandleStyle:
+    AnimatedViewStyle;
+
+  bottomLeftHandleStyle:
+    AnimatedViewStyle;
+
+  bottomRightHandleStyle:
+    AnimatedViewStyle;
+
+  rotateHandleStyle:
+    AnimatedViewStyle;
+
+  resizeTopLeftGesture:
+    GestureType;
+
+  resizeTopRightGesture:
+    GestureType;
+
+  resizeBottomLeftGesture:
+    GestureType;
+
+  resizeBottomRightGesture:
+    GestureType;
+
+  rotateGesture:
+    GestureType;
 }
 
 /**
- * The four corner resize handles plus the rotation handle — all
- * siblings of StickerItem's visualBox (not children), so their touch
- * targets sit in the sticker's UNROTATED frame. StickerItem owns every
- * gesture and shared value; this component only lays out the already-
- * built GestureDetector/Animated.View tree, so the gesture math in
- * StickerItem.tsx doesn't have to live next to ~90 lines of JSX.
+ * Four resize handles plus one rotation handle.
  *
- * Named StickerTransformOverlay (CRITICAL FIX 3) — it renders every
- * part of the transform UI (selection box, four resize handles,
- * rotation handle), not just "selection."
+ * Gesture state and transform mathematics remain owned by
+ * StickerItem.tsx. This component is responsible only for positioning
+ * the touch targets.
  */
 export function SelectionHandles({
   width,
   height,
+
   resizeTouchTargetMargin,
   rotateHandleGap,
   halfTouchTarget,
+
   topLeftHandleStyle,
   topRightHandleStyle,
   bottomLeftHandleStyle,
   bottomRightHandleStyle,
   rotateHandleStyle,
+
   resizeTopLeftGesture,
   resizeTopRightGesture,
   resizeBottomLeftGesture,
@@ -128,78 +267,172 @@ export function SelectionHandles({
 }: SelectionHandlesProps) {
   return (
     <>
-      <GestureDetector gesture={resizeTopLeftGesture}>
+      {/* TOP LEFT */}
+      <GestureDetector
+        gesture={
+          resizeTopLeftGesture
+        }
+      >
         <Animated.View
           style={[
             styles.resizeTouchTarget,
+
             {
-              left: resizeTouchTargetMargin - halfTouchTarget,
-              top: resizeTouchTargetMargin + rotateHandleGap - halfTouchTarget,
+              left:
+                resizeTouchTargetMargin -
+                halfTouchTarget,
+
+              top:
+                resizeTouchTargetMargin +
+                rotateHandleGap -
+                halfTouchTarget,
             },
+
             topLeftHandleStyle,
           ]}
         >
-          <View style={styles.resizeHandleVisual} pointerEvents="none" />
+          <View
+            style={
+              styles.resizeHandleVisual
+            }
+            pointerEvents="none"
+          />
         </Animated.View>
       </GestureDetector>
 
-      <GestureDetector gesture={resizeTopRightGesture}>
+      {/* TOP RIGHT */}
+      <GestureDetector
+        gesture={
+          resizeTopRightGesture
+        }
+      >
         <Animated.View
           style={[
             styles.resizeTouchTarget,
+
             {
-              left: resizeTouchTargetMargin + width - halfTouchTarget,
-              top: resizeTouchTargetMargin + rotateHandleGap - halfTouchTarget,
+              left:
+                resizeTouchTargetMargin +
+                width -
+                halfTouchTarget,
+
+              top:
+                resizeTouchTargetMargin +
+                rotateHandleGap -
+                halfTouchTarget,
             },
+
             topRightHandleStyle,
           ]}
         >
-          <View style={styles.resizeHandleVisual} pointerEvents="none" />
+          <View
+            style={
+              styles.resizeHandleVisual
+            }
+            pointerEvents="none"
+          />
         </Animated.View>
       </GestureDetector>
 
-      <GestureDetector gesture={resizeBottomLeftGesture}>
+      {/* BOTTOM LEFT */}
+      <GestureDetector
+        gesture={
+          resizeBottomLeftGesture
+        }
+      >
         <Animated.View
           style={[
             styles.resizeTouchTarget,
+
             {
-              left: resizeTouchTargetMargin - halfTouchTarget,
-              top: resizeTouchTargetMargin + rotateHandleGap + height - halfTouchTarget,
+              left:
+                resizeTouchTargetMargin -
+                halfTouchTarget,
+
+              top:
+                resizeTouchTargetMargin +
+                rotateHandleGap +
+                height -
+                halfTouchTarget,
             },
+
             bottomLeftHandleStyle,
           ]}
         >
-          <View style={styles.resizeHandleVisual} pointerEvents="none" />
+          <View
+            style={
+              styles.resizeHandleVisual
+            }
+            pointerEvents="none"
+          />
         </Animated.View>
       </GestureDetector>
 
-      <GestureDetector gesture={resizeBottomRightGesture}>
+      {/* BOTTOM RIGHT */}
+      <GestureDetector
+        gesture={
+          resizeBottomRightGesture
+        }
+      >
         <Animated.View
           style={[
             styles.resizeTouchTarget,
+
             {
-              left: resizeTouchTargetMargin + width - halfTouchTarget,
-              top: resizeTouchTargetMargin + rotateHandleGap + height - halfTouchTarget,
+              left:
+                resizeTouchTargetMargin +
+                width -
+                halfTouchTarget,
+
+              top:
+                resizeTouchTargetMargin +
+                rotateHandleGap +
+                height -
+                halfTouchTarget,
             },
+
             bottomRightHandleStyle,
           ]}
         >
-          <View style={styles.resizeHandleVisual} pointerEvents="none" />
+          <View
+            style={
+              styles.resizeHandleVisual
+            }
+            pointerEvents="none"
+          />
         </Animated.View>
       </GestureDetector>
 
-      <GestureDetector gesture={rotateGesture}>
+      {/* ROTATION HANDLE */}
+      <GestureDetector
+        gesture={
+          rotateGesture
+        }
+      >
         <Animated.View
           style={[
             styles.resizeTouchTarget,
+
             {
-              left: resizeTouchTargetMargin + width / 2 - halfTouchTarget,
-              top: resizeTouchTargetMargin - halfTouchTarget,
+              left:
+                resizeTouchTargetMargin +
+                width / 2 -
+                halfTouchTarget,
+
+              top:
+                resizeTouchTargetMargin -
+                halfTouchTarget,
             },
+
             rotateHandleStyle,
           ]}
         >
-          <View style={styles.rotateHandleVisual} pointerEvents="none" />
+          <View
+            style={
+              styles.rotateHandleVisual
+            }
+            pointerEvents="none"
+          />
         </Animated.View>
       </GestureDetector>
     </>

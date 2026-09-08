@@ -1,71 +1,89 @@
 import { Image } from "expo-image";
-import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { View } from "react-native";
-import Animated, { runOnJS, useAnimatedStyle, useSharedValue } from "react-native-reanimated";
+import {
+  Gesture,
+  GestureDetector,
+} from "react-native-gesture-handler";
+import Animated, {
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+} from "react-native-reanimated";
 
 import type { StickerObject } from "@/types/sticker";
 import { MIN_STICKER_MM } from "@/utils/stickers";
-import { computeCornerResizeDelta, computeRotationDeltaDegrees } from "@/utils/stickerTransformMath";
-import { calculateSourcePpi, mmToDisplay } from "@/utils/units";
+import {
+  computeCornerResizeDelta,
+  computeRotationDeltaDegrees,
+} from "@/utils/stickerTransformMath";
+import {
+  calculateSourcePpi,
+  mmToDisplay,
+} from "@/utils/units";
 
-import { CutLinePreview, SelectionBadges, SelectionHandles } from "./StickerTransformOverlay";
+import {
+  CutLinePreview,
+  SelectionBadges,
+  SelectionHandles,
+} from "./StickerTransformOverlay";
+
 import { styles } from "./StickerItem.styles";
 
-// The visible CAD handle is intentionally small, but the gesture target is
-// larger so it remains usable on a touch screen (see
-// StickerItem.styles.ts for the visible handle's own, smaller size).
+/**
+ * The visible resize handle is small, but the actual touch area is
+ * deliberately larger so it is usable with a finger.
+ */
 const RESIZE_TOUCH_TARGET_SIZE = 40;
 
-// interactionRoot (the outer, non-animated wrapper) has to physically
-// extend at least this far past the sticker's own visual box on every
-// side, so that a touch landing on a corner handle's touch target lands
-// within an ancestor's real native layout bounds. Without this margin,
-// the handle is drawn outside its parent's box (fine visually — React
-// Native doesn't clip by default) but Android's touch dispatch only
-// descends into children whose bounds contain the touch point, so a
-// handle sitting entirely outside its parent's box can be seen but
-// never receives the initial touch-down that would start a gesture.
-// (hitSlop alone can't fix this: hitSlop only widens recognition for
-// touches an ancestor already delivered — it can't make an ancestor
-// deliver a touch that landed outside its own bounds in the first
-// place.) A little more than exactly half the touch target's size is
-// kept as a safety margin against rounding.
-const RESIZE_TOUCH_TARGET_MARGIN = RESIZE_TOUCH_TARGET_SIZE / 2 + 2;
+/**
+ * The outer interaction container extends beyond the image so the
+ * resize handles remain inside a real native hit-test area.
+ */
+const RESIZE_TOUCH_TARGET_MARGIN =
+  RESIZE_TOUCH_TARGET_SIZE / 2 + 2;
 
-// The rotation handle sits above the box's top edge by this many
-// display px, and shares the same touch-target size as the corner
-// handles for a consistent, finger-friendly hit area. Placed
-// top-center (a common "rotate stick" pattern) rather than the Figma
-// reference's bottom-right position, so it never collides with the
-// bottom-right resize handle.
+/**
+ * Distance between the top edge of the sticker and the rotation handle.
+ */
 const ROTATE_HANDLE_GAP = 30;
 
 interface StickerItemProps {
   sticker: StickerObject;
-  // px-per-mm scale from the parent editor, shared by every
-  // sticker so they all convert their mm geometry the same way.
+
+  /**
+   * Number of display pixels used for one physical millimeter.
+   *
+   * Permanent sticker geometry is NEVER stored in screen pixels.
+   */
   editorScale: number;
+
   selected: boolean;
-  // The "tap to select" gesture for THIS sticker, created by the
-  // parent editor screen (not here) — see editor.tsx's
-  // stickerSelectGestureById / canvasDeselectGesture for why: the
-  // page's deselect-on-empty-tap gesture has to call
-  // .requireExternalGestureToFail(...) against every sticker's select
-  // gesture, which requires both gesture objects to exist in the same
-  // scope. This component still owns and races its own move (Pan)
-  // gesture against it.
-  selectGesture: ReturnType<typeof Gesture.Tap>;
-  // Called once, when a drag finishes, with the physical distance
-  // moved in mm — not on every frame. The editor screen owns
-  // project state, so it applies the delta to the sticker's stored
-  // xMm/yMm (and clamps it to the page) and autosaves; this
-  // component never mutates geometry itself, it only reports what
-  // the user's finger did.
-  onMove: (id: string, deltaXMm: number, deltaYMm: number) => void;
-  // Same pattern as onMove, but for a corner resize handle: reports
-  // the physical size change AND, for a top/left-anchored corner,
-  // the accompanying position change (deltaXMm/deltaYMm), once the
-  // drag ends.
+
+  /**
+   * Select this sticker.
+   *
+   * StickerItem owns its own tap/pan gestures. The editor only owns
+   * the selectedStickerId state.
+   */
+  onSelect: (id: string) => void;
+
+  /**
+   * Commit a completed movement to project state.
+   *
+   * Values are reported in millimeters.
+   */
+  onMove: (
+    id: string,
+    deltaXMm: number,
+    deltaYMm: number,
+  ) => void;
+
+  /**
+   * Commit a completed resize to project state.
+   *
+   * deltaXMm/deltaYMm are required for left/top handles because the
+   * opposite corner remains anchored.
+   */
   onResize: (
     id: string,
     deltaWidthMm: number,
@@ -73,470 +91,826 @@ interface StickerItemProps {
     deltaXMm: number,
     deltaYMm: number,
   ) => void;
-  // Same delta pattern as onMove/onResize: reports how many degrees
-  // the rotation handle moved the sticker, once the drag ends. The
-  // parent normalizes sticker.rotation + delta into [0, 360).
-  onRotate: (id: string, deltaDegrees: number) => void;
-  // "transform" (the default) shows the normal move/resize/rotate
-  // selection UI. "cutLine" swaps the selection overlay for a
-  // colored preview of the sticker's cut path and hides the
-  // transform handles, since the Cut Line tab is about the cut
-  // path, not the sticker's geometry.
+
+  /**
+   * Commit a completed rotation.
+   */
+  onRotate: (
+    id: string,
+    deltaDegrees: number,
+  ) => void;
+
   interactionMode?: "transform" | "cutLine";
 }
 
 /**
- * Renders one sticker on the editor canvas and owns every gesture that
- * can change its geometry (move, four-corner resize, rotate).
- * Permanent geometry (xMm/yMm/widthMm/heightMm/rotation) lives in
- * millimeters on the StickerObject — this component only converts to
- * on-screen pixels for display, so print output never depends on any
- * particular phone's screen size.
+ * Renders one editable sticker.
  *
- * This file owns image rendering, the main move gesture, and selection
- * (CRITICAL FIX 3's split). The actual JSX for the selection
- * border/labels and the resize/rotate handles lives in
- * StickerTransformOverlay.tsx (presentational only — no gesture or
- * geometry logic of its own), and ALL of the resize- and
- * rotation-handle geometry lives in utils/stickerTransformMath.ts (plain
- * worklet functions, reused by both the live per-frame preview and the
- * on-release commit below) — this file only wires gestures to those
- * functions, it doesn't do the angle/anchor math itself.
+ * IMPORTANT ARCHITECTURE
+ * ----------------------
  *
- * Layout is three nested layers, from outside in:
- *  - interactionRoot: a plain, non-animated View sized to the
- *    sticker's committed box PLUS RESIZE_TOUCH_TARGET_MARGIN on every
- *    side (see the comment on RESIZE_TOUCH_TARGET_MARGIN above).
- *  - visualBox: the actual sticker — image, selection border, and
- *    dimension label — positioned at a fixed offset inside
- *    interactionRoot. Its live position/size/rotation while dragging
- *    comes from Reanimated shared values; its resting values come
- *    straight from the committed sticker prop.
- *  - corner touch targets + a rotation touch target, siblings of
- *    visualBox (rendered via SelectionHandles): each owns a single Pan
- *    gesture. Rendering them AFTER visualBox in JSX (so they stack on
- *    top of it) is what keeps a touch landing in a handle's small
- *    overlap zone from also being claimed by visualBox's own move
- *    gesture underneath — a "separated gesture region" rather than an
- *    explicit Gesture.Exclusive relationship, since the two never need
- *    to negotiate over the same touch in the first place.
+ * Project state stores:
  *
- * Resize/rotate geometry is previewed on the UI thread and committed
- * to project geometry only when the gesture ends — the *live* drag
- * position/size/rotation only ever exists in Reanimated shared values
- * here; the *committed* values stay in StickerObject and are only
- * updated once, via onMove/onResize/onRotate, when the finger lifts.
- * That split is why every shared value resets to 0 right after
- * calling one of those — the next render already reflects the new
- * committed geometry.
+ * xMm
+ * yMm
+ * widthMm
+ * heightMm
+ * rotation
  *
- * KNOWN LIMITATION: the corner resize handles and the rotation handle
- * are positioned in the sticker's UNROTATED frame (they don't spin
- * around with the artwork). Only the image itself (inside visualBox)
- * actually rotates. This keeps the resize math simple — dragging a
- * corner still resizes correctly — but on a heavily rotated sticker
- * the handles will visually sit at the unrotated bounding box's
- * corners rather than the rotated artwork's corners.
+ * Reanimated stores temporary display movement while a gesture is active.
+ *
+ * This separation is intentional:
+ *
+ * finger movement
+ *      ↓
+ * temporary screen translation
+ *      ↓
+ * finger released
+ *      ↓
+ * convert px → mm
+ *      ↓
+ * update StickerProject
+ *
+ * This keeps printing/export independent from phone resolution.
  */
 export function StickerItem({
   sticker,
   editorScale,
   selected,
-  selectGesture,
+  onSelect,
   onMove,
   onResize,
   onRotate,
   interactionMode = "transform",
 }: StickerItemProps) {
-  const left = mmToDisplay(sticker.xMm, editorScale);
-  const top = mmToDisplay(sticker.yMm, editorScale);
-  const width = mmToDisplay(sticker.widthMm, editorScale);
-  const height = mmToDisplay(sticker.heightMm, editorScale);
-  const minSizePx = mmToDisplay(MIN_STICKER_MM, editorScale);
+  /**
+   * Convert committed physical geometry into editor display coordinates.
+   */
+  const left = mmToDisplay(
+    sticker.xMm,
+    editorScale,
+  );
 
-  // Falls back to the committed width/height ratio for stickers saved
-  // before aspectRatio existed on the type, so old projects still
-  // resize sensibly instead of crashing on a missing value.
-  const aspectRatio = sticker.aspectRatio ?? (sticker.widthMm / sticker.heightMm || 1);
-  const aspectLocked = sticker.aspectLocked ?? true;
+  const top = mmToDisplay(
+    sticker.yMm,
+    editorScale,
+  );
 
-  const outerLeft = left - RESIZE_TOUCH_TARGET_MARGIN;
-  const outerTop = top - RESIZE_TOUCH_TARGET_MARGIN - ROTATE_HANDLE_GAP;
-  const outerWidth = width + RESIZE_TOUCH_TARGET_MARGIN * 2;
-  const outerHeight = height + RESIZE_TOUCH_TARGET_MARGIN * 2 + ROTATE_HANDLE_GAP;
+  const width = mmToDisplay(
+    sticker.widthMm,
+    editorScale,
+  );
 
-  // processedUri (e.g. after background removal) is preferred for
-  // display, but sourceUri is never overwritten.
-  const imageUri = sticker.processedUri ?? sticker.sourceUri;
+  const height = mmToDisplay(
+    sticker.heightMm,
+    editorScale,
+  );
 
-  // Derived on demand from stored geometry rather than cached on the
-  // sticker, so it's automatically correct after a resize.
-  const sourcePpi = calculateSourcePpi(sticker.originalWidthPx, sticker.widthMm);
+  const minSizePx = mmToDisplay(
+    MIN_STICKER_MM,
+    editorScale,
+  );
 
-  const dragTranslateX = useSharedValue(0);
-  const dragTranslateY = useSharedValue(0);
+  /**
+   * Old saved projects may not contain aspectRatio.
+   *
+   * IMPORTANT:
+   * `??` cannot be directly mixed with `||`.
+   *
+   * Therefore the fallback expression must be wrapped in parentheses.
+   */
+  const aspectRatio =
+    sticker.aspectRatio ??
+    (sticker.widthMm / sticker.heightMm || 1);
 
-  // One (dx, dy) pair per corner, each only ever driven by that
-  // corner's own gesture. Kept separate (rather than one shared pair
-  // for all four) so two corners' math can never cross-contaminate,
-  // and so each handle's own visual position can track just its own
-  // drag without touching the others.
-  const resizeTopLeftDX = useSharedValue(0);
-  const resizeTopLeftDY = useSharedValue(0);
-  const resizeTopRightDX = useSharedValue(0);
-  const resizeTopRightDY = useSharedValue(0);
-  const resizeBottomLeftDX = useSharedValue(0);
-  const resizeBottomLeftDY = useSharedValue(0);
-  const resizeBottomRightDX = useSharedValue(0);
-  const resizeBottomRightDY = useSharedValue(0);
+  const aspectLocked =
+    sticker.aspectLocked ?? true;
 
-  // Live rotation delta (degrees) from the rotation handle, added on
-  // top of the committed sticker.rotation while dragging.
-  const liveRotationDelta = useSharedValue(0);
+  /**
+   * Background removal will eventually create processedUri.
+   *
+   * The original sourceUri is deliberately preserved so processing
+   * remains non-destructive.
+   */
+  const imageUri =
+    sticker.processedUri ??
+    sticker.sourceUri;
 
-  const showTransformHandles = selected && interactionMode === "transform";
-  const showCutLinePreview = selected && interactionMode === "cutLine";
+  /**
+   * PPI is calculated from the original image pixels and its current
+   * physical print width.
+   */
+  const sourcePpi =
+    calculateSourcePpi(
+      sticker.originalWidthPx,
+      sticker.widthMm,
+    );
 
-  // selectGesture (created by the parent, see the prop doc above) always
-  // selects on a quick, still tap. A drag only moves the sticker once
-  // it's already selected — Gesture.Race lets the tap win immediately
-  // for a stationary touch, while a finger that moves past the Pan
-  // gesture's own activation distance hands the gesture to Pan instead.
-  // That is what stops "tap to select" and "drag to move" from fighting
-  // over the same touch.
-  const panGesture = Gesture.Pan()
-    .enabled(selected)
-    .onChange((event) => {
-      dragTranslateX.value += event.changeX;
-      dragTranslateY.value += event.changeY;
-    })
-    .onEnd(() => {
-      const deltaXMm = dragTranslateX.value / editorScale;
-      const deltaYMm = dragTranslateY.value / editorScale;
-      dragTranslateX.value = 0;
-      dragTranslateY.value = 0;
-      runOnJS(onMove)(sticker.id, deltaXMm, deltaYMm);
-    });
+  // ============================================================
+  // MOVE STATE
+  // ============================================================
 
-  const moveGesture = Gesture.Race(selectGesture, panGesture);
+  /**
+   * Temporary on-screen movement.
+   *
+   * These values are NOT saved into StickerProject every frame.
+   */
+  const moveX = useSharedValue(0);
+  const moveY = useSharedValue(0);
 
-  // Every corner's gesture follows the same shape: accumulate the raw
-  // finger movement, then on release run it through
-  // computeCornerResizeDelta to get the anchor-aware (and, when
-  // aspectLocked, aspect-ratio-correct) result, convert that from
-  // display px to mm, report it, and reset back to 0 (the next
-  // render's "committed" width/height/xMm/yMm already includes what
-  // was just committed). The move gesture above is a completely
-  // separate GestureDetector on a completely separate view (visualBox
-  // vs. these touch targets), so a resize drag can never also move
-  // the sticker's body.
-  const resizeTopLeftGesture = Gesture.Pan()
-    .onChange((event) => {
-      resizeTopLeftDX.value += event.changeX;
-      resizeTopLeftDY.value += event.changeY;
-    })
-    .onEnd(() => {
-      const result = computeCornerResizeDelta(
-        "topLeft",
-        resizeTopLeftDX.value,
-        resizeTopLeftDY.value,
-        width,
-        height,
-        aspectRatio,
-        minSizePx,
-        aspectLocked,
+  // ============================================================
+  // RESIZE STATE
+  // ============================================================
+
+  const tlX = useSharedValue(0);
+  const tlY = useSharedValue(0);
+
+  const trX = useSharedValue(0);
+  const trY = useSharedValue(0);
+
+  const blX = useSharedValue(0);
+  const blY = useSharedValue(0);
+
+  const brX = useSharedValue(0);
+  const brY = useSharedValue(0);
+
+  // ============================================================
+  // ROTATION STATE
+  // ============================================================
+
+  const liveRotation =
+    useSharedValue(0);
+
+  const showTransformHandles =
+    selected &&
+    interactionMode === "transform";
+
+  const showCutLine =
+    selected &&
+    interactionMode === "cutLine";
+
+  // ============================================================
+  // MOVE GESTURE
+  // ============================================================
+
+  /**
+   * IMPORTANT FIX:
+   *
+   * Do NOT use:
+   *
+   *   .enabled(selected)
+   *
+   * A sticker should be draggable even when the drag begins while it
+   * is not selected.
+   *
+   * Starting the Pan automatically selects it.
+   */
+  const movePan =
+    Gesture.Pan()
+      .minDistance(2)
+
+      .onBegin(() => {
+        runOnJS(onSelect)(
+          sticker.id,
+        );
+      })
+
+      .onUpdate((event) => {
+        /**
+         * translationX/Y are cumulative values from the beginning of
+         * the gesture.
+         *
+         * Therefore we assign them directly rather than repeatedly
+         * adding them.
+         */
+        moveX.value =
+          event.translationX;
+
+        moveY.value =
+          event.translationY;
+      })
+
+      .onEnd((event) => {
+        /**
+         * Convert the final screen movement back into physical mm.
+         */
+        const deltaXMm =
+          event.translationX /
+          editorScale;
+
+        const deltaYMm =
+          event.translationY /
+          editorScale;
+
+        /**
+         * Project state is owned by editor.tsx.
+         */
+        runOnJS(onMove)(
+          sticker.id,
+          deltaXMm,
+          deltaYMm,
+        );
+
+        moveX.value = 0;
+        moveY.value = 0;
+      })
+
+      .onFinalize(() => {
+        /**
+         * Also clean up temporary movement when Android/iOS cancels
+         * the gesture rather than completing it normally.
+         */
+        moveX.value = 0;
+        moveY.value = 0;
+      });
+
+  /**
+   * A stationary touch selects the sticker without moving it.
+   */
+  const selectTap =
+    Gesture.Tap()
+      .maxDistance(8)
+
+      .onEnd(
+        (_event, success) => {
+          if (success) {
+            runOnJS(onSelect)(
+              sticker.id,
+            );
+          }
+        },
       );
-      resizeTopLeftDX.value = 0;
-      resizeTopLeftDY.value = 0;
-      runOnJS(onResize)(
-        sticker.id,
-        result.deltaWidth / editorScale,
-        result.deltaHeight / editorScale,
-        result.deltaLeft / editorScale,
-        result.deltaTop / editorScale,
-      );
-    });
 
-  const resizeTopRightGesture = Gesture.Pan()
-    .onChange((event) => {
-      resizeTopRightDX.value += event.changeX;
-      resizeTopRightDY.value += event.changeY;
-    })
-    .onEnd(() => {
-      const result = computeCornerResizeDelta(
-        "topRight",
-        resizeTopRightDX.value,
-        resizeTopRightDY.value,
-        width,
-        height,
-        aspectRatio,
-        minSizePx,
-        aspectLocked,
-      );
-      resizeTopRightDX.value = 0;
-      resizeTopRightDY.value = 0;
-      runOnJS(onResize)(
-        sticker.id,
-        result.deltaWidth / editorScale,
-        result.deltaHeight / editorScale,
-        result.deltaLeft / editorScale,
-        result.deltaTop / editorScale,
-      );
-    });
+  /**
+   * The body can either become a tap or a drag.
+   *
+   * Stationary:
+   *      Tap wins
+   *
+   * Movement:
+   *      Pan wins
+   */
+  const bodyGesture =
+    Gesture.Race(
+      selectTap,
+      movePan,
+    );
 
-  const resizeBottomLeftGesture = Gesture.Pan()
-    .onChange((event) => {
-      resizeBottomLeftDX.value += event.changeX;
-      resizeBottomLeftDY.value += event.changeY;
-    })
-    .onEnd(() => {
-      const result = computeCornerResizeDelta(
-        "bottomLeft",
-        resizeBottomLeftDX.value,
-        resizeBottomLeftDY.value,
-        width,
-        height,
-        aspectRatio,
-        minSizePx,
-        aspectLocked,
-      );
-      resizeBottomLeftDX.value = 0;
-      resizeBottomLeftDY.value = 0;
-      runOnJS(onResize)(
-        sticker.id,
-        result.deltaWidth / editorScale,
-        result.deltaHeight / editorScale,
-        result.deltaLeft / editorScale,
-        result.deltaTop / editorScale,
-      );
-    });
+  // ============================================================
+  // RESIZE GESTURES
+  // ============================================================
 
-  const resizeBottomRightGesture = Gesture.Pan()
-    .onChange((event) => {
-      resizeBottomRightDX.value += event.changeX;
-      resizeBottomRightDY.value += event.changeY;
-    })
-    .onEnd(() => {
-      const result = computeCornerResizeDelta(
-        "bottomRight",
-        resizeBottomRightDX.value,
-        resizeBottomRightDY.value,
-        width,
-        height,
-        aspectRatio,
-        minSizePx,
-        aspectLocked,
-      );
-      resizeBottomRightDX.value = 0;
-      resizeBottomRightDY.value = 0;
-      runOnJS(onResize)(
-        sticker.id,
-        result.deltaWidth / editorScale,
-        result.deltaHeight / editorScale,
-        result.deltaLeft / editorScale,
-        result.deltaTop / editorScale,
-      );
-    });
+  /**
+   * Shared resize gesture builder.
+   *
+   * Each handle owns its own shared X/Y values, but all four use the
+   * same geometry function.
+   */
+  function buildResizeGesture(
+    corner:
+      | "topLeft"
+      | "topRight"
+      | "bottomLeft"
+      | "bottomRight",
 
-  // The rotation handle rests directly above the box's center. Its
-  // vector from the box center, in the unrotated frame, is therefore
-  // always straight up — (0, -(height/2 + ROTATE_HANDLE_GAP)). During
-  // the drag, adding the gesture's cumulative translation to that
-  // rest vector gives the touch's current vector from center; the
-  // angle between that and the rest vector is how far the sticker has
-  // been rotated. This is a completely separate gesture/touch target
-  // from both the move gesture and the four resize gestures, so none
-  // of the three can ever fire from the same touch.
-  const restVectorX = 0;
-  const restVectorY = -(height / 2 + ROTATE_HANDLE_GAP);
+    dx: typeof tlX,
+    dy: typeof tlY,
+  ) {
+    return Gesture.Pan()
+      .minDistance(1)
 
-  const rotateGesture = Gesture.Pan()
-    .onUpdate((event) => {
-      liveRotationDelta.value = computeRotationDeltaDegrees(
-        event.translationX,
-        event.translationY,
-        restVectorX,
-        restVectorY,
-      );
-    })
-    .onEnd(() => {
-      const deltaDegrees = liveRotationDelta.value;
-      liveRotationDelta.value = 0;
-      runOnJS(onRotate)(sticker.id, deltaDegrees);
-    });
+      .onBegin(() => {
+        runOnJS(onSelect)(
+          sticker.id,
+        );
+      })
 
-  // visualBox's live style: sums all four corners' (mostly-zero — only
-  // the one actually being dragged ever contributes anything)
-  // deltas together with the move gesture's translation, plus the
-  // live rotation delta on top of the committed rotation. Summing the
-  // corner deltas is safe specifically because only one corner can
-  // ever be mid-drag at a time (each owns its own separate touch
-  // target/gesture), so the other three always contribute an exact
-  // zero here.
-  const animatedVisualBoxStyle = useAnimatedStyle(() => {
-    const topLeftResult = computeCornerResizeDelta(
+      .onUpdate((event) => {
+        dx.value =
+          event.translationX;
+
+        dy.value =
+          event.translationY;
+      })
+
+      .onEnd((event) => {
+        const result =
+          computeCornerResizeDelta(
+            corner,
+            event.translationX,
+            event.translationY,
+            width,
+            height,
+            aspectRatio,
+            minSizePx,
+            aspectLocked,
+          );
+
+        runOnJS(onResize)(
+          sticker.id,
+
+          result.deltaWidth /
+            editorScale,
+
+          result.deltaHeight /
+            editorScale,
+
+          result.deltaLeft /
+            editorScale,
+
+          result.deltaTop /
+            editorScale,
+        );
+
+        dx.value = 0;
+        dy.value = 0;
+      })
+
+      .onFinalize(() => {
+        dx.value = 0;
+        dy.value = 0;
+      });
+  }
+
+  const resizeTopLeftGesture =
+    buildResizeGesture(
       "topLeft",
-      resizeTopLeftDX.value,
-      resizeTopLeftDY.value,
-      width,
-      height,
-      aspectRatio,
-      minSizePx,
-      aspectLocked,
+      tlX,
+      tlY,
     );
-    const topRightResult = computeCornerResizeDelta(
+
+  const resizeTopRightGesture =
+    buildResizeGesture(
       "topRight",
-      resizeTopRightDX.value,
-      resizeTopRightDY.value,
-      width,
-      height,
-      aspectRatio,
-      minSizePx,
-      aspectLocked,
+      trX,
+      trY,
     );
-    const bottomLeftResult = computeCornerResizeDelta(
+
+  const resizeBottomLeftGesture =
+    buildResizeGesture(
       "bottomLeft",
-      resizeBottomLeftDX.value,
-      resizeBottomLeftDY.value,
-      width,
-      height,
-      aspectRatio,
-      minSizePx,
-      aspectLocked,
+      blX,
+      blY,
     );
-    const bottomRightResult = computeCornerResizeDelta(
+
+  const resizeBottomRightGesture =
+    buildResizeGesture(
       "bottomRight",
-      resizeBottomRightDX.value,
-      resizeBottomRightDY.value,
-      width,
-      height,
-      aspectRatio,
-      minSizePx,
-      aspectLocked,
+      brX,
+      brY,
     );
 
-    const totalDeltaLeft =
-      topLeftResult.deltaLeft +
-      topRightResult.deltaLeft +
-      bottomLeftResult.deltaLeft +
-      bottomRightResult.deltaLeft;
-    const totalDeltaTop =
-      topLeftResult.deltaTop + topRightResult.deltaTop + bottomLeftResult.deltaTop + bottomRightResult.deltaTop;
-    const totalDeltaWidth =
-      topLeftResult.deltaWidth +
-      topRightResult.deltaWidth +
-      bottomLeftResult.deltaWidth +
-      bottomRightResult.deltaWidth;
-    const totalDeltaHeight =
-      topLeftResult.deltaHeight +
-      topRightResult.deltaHeight +
-      bottomLeftResult.deltaHeight +
-      bottomRightResult.deltaHeight;
+  // ============================================================
+  // ROTATION
+  // ============================================================
 
-    return {
-      transform: [
-        { translateX: dragTranslateX.value + totalDeltaLeft },
-        { translateY: dragTranslateY.value + totalDeltaTop },
-        { rotate: `${sticker.rotation + liveRotationDelta.value}deg` },
-      ],
-      width: width + totalDeltaWidth,
-      height: height + totalDeltaHeight,
-    };
-  });
+  /**
+   * Rotation is measured around the sticker center.
+   *
+   * At rest the rotation handle is directly above the center.
+   */
+  const restVectorX = 0;
 
-  // Each handle tracks the whole-sticker move (so all four stay
-  // attached to the box while it's being dragged) plus its OWN
-  // resize drag only — not the aspect-ratio-derived box change, just
-  // the raw finger movement, so the handle visually stays under the
-  // finger. The other three handles intentionally do not animate
-  // live during a resize; they snap to their correct new corner once
-  // the gesture ends and the component re-renders from the new
-  // committed geometry.
-  const topLeftHandleStyle = useAnimatedStyle(() => ({
-    transform: [
-      { translateX: dragTranslateX.value + resizeTopLeftDX.value },
-      { translateY: dragTranslateY.value + resizeTopLeftDY.value },
-    ],
-  }));
-  const topRightHandleStyle = useAnimatedStyle(() => ({
-    transform: [
-      { translateX: dragTranslateX.value + resizeTopRightDX.value },
-      { translateY: dragTranslateY.value + resizeTopRightDY.value },
-    ],
-  }));
-  const bottomLeftHandleStyle = useAnimatedStyle(() => ({
-    transform: [
-      { translateX: dragTranslateX.value + resizeBottomLeftDX.value },
-      { translateY: dragTranslateY.value + resizeBottomLeftDY.value },
-    ],
-  }));
-  const bottomRightHandleStyle = useAnimatedStyle(() => ({
-    transform: [
-      { translateX: dragTranslateX.value + resizeBottomRightDX.value },
-      { translateY: dragTranslateY.value + resizeBottomRightDY.value },
-    ],
-  }));
+  const restVectorY =
+    -(
+      height / 2 +
+      ROTATE_HANDLE_GAP
+    );
 
-  // The rotation handle only tracks the whole-sticker move — it isn't
-  // meant to visually spin around during its own drag, it just needs
-  // to stay attached to the box while the box is being repositioned.
-  const rotateHandleStyle = useAnimatedStyle(() => ({
-    transform: [
-      { translateX: dragTranslateX.value },
-      { translateY: dragTranslateY.value },
-    ],
-  }));
+  const rotateGesture =
+    Gesture.Pan()
+      .minDistance(1)
 
-  const halfTouchTarget = RESIZE_TOUCH_TARGET_SIZE / 2;
+      .onBegin(() => {
+        runOnJS(onSelect)(
+          sticker.id,
+        );
+      })
+
+      .onUpdate((event) => {
+        liveRotation.value =
+          computeRotationDeltaDegrees(
+            event.translationX,
+            event.translationY,
+            restVectorX,
+            restVectorY,
+          );
+      })
+
+      .onEnd(() => {
+        const delta =
+          liveRotation.value;
+
+        runOnJS(onRotate)(
+          sticker.id,
+          delta,
+        );
+
+        liveRotation.value = 0;
+      })
+
+      .onFinalize(() => {
+        liveRotation.value = 0;
+      });
+
+  // ============================================================
+  // LIVE STICKER STYLE
+  // ============================================================
+
+  /**
+   * This animated style controls:
+   *
+   * - live movement
+   * - live resize preview
+   * - live rotation
+   *
+   * The committed geometry still comes from sticker.
+   */
+  const liveBoxStyle =
+    useAnimatedStyle(() => {
+      let dx = 0;
+      let dy = 0;
+
+      let activeCorner:
+        | "topLeft"
+        | "topRight"
+        | "bottomLeft"
+        | "bottomRight"
+        | null = null;
+
+      if (
+        tlX.value !== 0 ||
+        tlY.value !== 0
+      ) {
+        activeCorner =
+          "topLeft";
+
+        dx = tlX.value;
+        dy = tlY.value;
+      } else if (
+        trX.value !== 0 ||
+        trY.value !== 0
+      ) {
+        activeCorner =
+          "topRight";
+
+        dx = trX.value;
+        dy = trY.value;
+      } else if (
+        blX.value !== 0 ||
+        blY.value !== 0
+      ) {
+        activeCorner =
+          "bottomLeft";
+
+        dx = blX.value;
+        dy = blY.value;
+      } else if (
+        brX.value !== 0 ||
+        brY.value !== 0
+      ) {
+        activeCorner =
+          "bottomRight";
+
+        dx = brX.value;
+        dy = brY.value;
+      }
+
+      /**
+       * Normal state / movement state.
+       */
+      if (!activeCorner) {
+        return {
+          left:
+            RESIZE_TOUCH_TARGET_MARGIN,
+
+          top:
+            RESIZE_TOUCH_TARGET_MARGIN +
+            ROTATE_HANDLE_GAP,
+
+          width,
+          height,
+
+          transform: [
+            {
+              translateX:
+                moveX.value,
+            },
+
+            {
+              translateY:
+                moveY.value,
+            },
+
+            {
+              rotate:
+                `${
+                  sticker.rotation +
+                  liveRotation.value
+                }deg`,
+            },
+          ],
+        };
+      }
+
+      /**
+       * Resize preview.
+       */
+      const result =
+        computeCornerResizeDelta(
+          activeCorner,
+          dx,
+          dy,
+          width,
+          height,
+          aspectRatio,
+          minSizePx,
+          aspectLocked,
+        );
+
+      return {
+        left:
+          RESIZE_TOUCH_TARGET_MARGIN +
+          result.deltaLeft,
+
+        top:
+          RESIZE_TOUCH_TARGET_MARGIN +
+          ROTATE_HANDLE_GAP +
+          result.deltaTop,
+
+        width:
+          width +
+          result.deltaWidth,
+
+        height:
+          height +
+          result.deltaHeight,
+
+        transform: [
+          {
+            translateX:
+              moveX.value,
+          },
+
+          {
+            translateY:
+              moveY.value,
+          },
+
+          {
+            rotate:
+              `${
+                sticker.rotation +
+                liveRotation.value
+              }deg`,
+          },
+        ],
+      };
+    });
+
+  // ============================================================
+  // INTERACTION ROOT
+  // ============================================================
+
+  /**
+   * The interaction container is larger than the visible sticker.
+   *
+   * This is necessary because Android hit testing does not reliably
+   * deliver touches to children that sit completely outside their
+   * parent's native bounds.
+   */
+  const interactionLeft =
+    left -
+    RESIZE_TOUCH_TARGET_MARGIN;
+
+  const interactionTop =
+    top -
+    RESIZE_TOUCH_TARGET_MARGIN -
+    ROTATE_HANDLE_GAP;
+
+  const interactionWidth =
+    width +
+    RESIZE_TOUCH_TARGET_MARGIN *
+      2;
+
+  const interactionHeight =
+    height +
+    RESIZE_TOUCH_TARGET_MARGIN *
+      2 +
+    ROTATE_HANDLE_GAP;
+
+  // ============================================================
+  // HANDLE PREVIEW STYLES
+  // ============================================================
+
+  const topLeftHandleStyle =
+    useAnimatedStyle(
+      () => ({
+        transform: [
+          {
+            translateX:
+              tlX.value,
+          },
+          {
+            translateY:
+              tlY.value,
+          },
+        ],
+      }),
+    );
+
+  const topRightHandleStyle =
+    useAnimatedStyle(
+      () => ({
+        transform: [
+          {
+            translateX:
+              trX.value,
+          },
+          {
+            translateY:
+              trY.value,
+          },
+        ],
+      }),
+    );
+
+  const bottomLeftHandleStyle =
+    useAnimatedStyle(
+      () => ({
+        transform: [
+          {
+            translateX:
+              blX.value,
+          },
+          {
+            translateY:
+              blY.value,
+          },
+        ],
+      }),
+    );
+
+  const bottomRightHandleStyle =
+    useAnimatedStyle(
+      () => ({
+        transform: [
+          {
+            translateX:
+              brX.value,
+          },
+          {
+            translateY:
+              brY.value,
+          },
+        ],
+      }),
+    );
+
+  const rotateHandleStyle =
+    useAnimatedStyle(
+      () => ({
+        transform: [
+          {
+            rotate:
+              `${liveRotation.value}deg`,
+          },
+        ],
+      }),
+    );
+
+  // ============================================================
+  // RENDER
+  // ============================================================
 
   return (
     <View
       pointerEvents="box-none"
       style={[
         styles.interactionRoot,
-        { left: outerLeft, top: outerTop, width: outerWidth, height: outerHeight, zIndex: sticker.zIndex },
+
+        {
+          left:
+            interactionLeft,
+
+          top:
+            interactionTop,
+
+          width:
+            interactionWidth,
+
+          height:
+            interactionHeight,
+
+          zIndex:
+            sticker.zIndex,
+        },
       ]}
     >
-      <GestureDetector gesture={moveGesture}>
+      {/*
+        The body gesture belongs ONLY to the actual artwork box.
+
+        Resize and rotation handles are separate sibling gesture
+        regions below.
+      */}
+      <GestureDetector
+        gesture={bodyGesture}
+      >
         <Animated.View
           style={[
             styles.visualBox,
-            {
-              left: RESIZE_TOUCH_TARGET_MARGIN,
-              top: RESIZE_TOUCH_TARGET_MARGIN + ROTATE_HANDLE_GAP,
-              width,
-              height,
-            },
-            animatedVisualBoxStyle,
+            liveBoxStyle,
           ]}
         >
-          <Image source={{ uri: imageUri }} style={styles.image} contentFit="contain" />
+          <Image
+            source={{
+              uri: imageUri,
+            }}
+            style={styles.image}
+            contentFit="contain"
+            pointerEvents="none"
+          />
 
-          {selected && interactionMode === "transform" && (
-            <SelectionBadges sticker={sticker} sourcePpi={sourcePpi} />
+          {showTransformHandles && (
+            <SelectionBadges
+              sticker={sticker}
+              sourcePpi={
+                sourcePpi
+              }
+            />
           )}
 
-          {showCutLinePreview && <CutLinePreview sticker={sticker} />}
+          {showCutLine && (
+            <CutLinePreview
+              sticker={sticker}
+            />
+          )}
         </Animated.View>
       </GestureDetector>
 
+      {/*
+        Handles render AFTER the artwork.
+
+        This gives their touch areas priority where a handle overlaps
+        the sticker body.
+      */}
       {showTransformHandles && (
         <SelectionHandles
           width={width}
           height={height}
-          resizeTouchTargetMargin={RESIZE_TOUCH_TARGET_MARGIN}
-          rotateHandleGap={ROTATE_HANDLE_GAP}
-          halfTouchTarget={halfTouchTarget}
-          topLeftHandleStyle={topLeftHandleStyle}
-          topRightHandleStyle={topRightHandleStyle}
-          bottomLeftHandleStyle={bottomLeftHandleStyle}
-          bottomRightHandleStyle={bottomRightHandleStyle}
-          rotateHandleStyle={rotateHandleStyle}
-          resizeTopLeftGesture={resizeTopLeftGesture}
-          resizeTopRightGesture={resizeTopRightGesture}
-          resizeBottomLeftGesture={resizeBottomLeftGesture}
-          resizeBottomRightGesture={resizeBottomRightGesture}
-          rotateGesture={rotateGesture}
+
+          resizeTouchTargetMargin={
+            RESIZE_TOUCH_TARGET_MARGIN
+          }
+
+          rotateHandleGap={
+            ROTATE_HANDLE_GAP
+          }
+
+          halfTouchTarget={
+            RESIZE_TOUCH_TARGET_SIZE /
+            2
+          }
+
+          topLeftHandleStyle={
+            topLeftHandleStyle
+          }
+
+          topRightHandleStyle={
+            topRightHandleStyle
+          }
+
+          bottomLeftHandleStyle={
+            bottomLeftHandleStyle
+          }
+
+          bottomRightHandleStyle={
+            bottomRightHandleStyle
+          }
+
+          rotateHandleStyle={
+            rotateHandleStyle
+          }
+
+          resizeTopLeftGesture={
+            resizeTopLeftGesture
+          }
+
+          resizeTopRightGesture={
+            resizeTopRightGesture
+          }
+
+          resizeBottomLeftGesture={
+            resizeBottomLeftGesture
+          }
+
+          resizeBottomRightGesture={
+            resizeBottomRightGesture
+          }
+
+          rotateGesture={
+            rotateGesture
+          }
         />
       )}
     </View>

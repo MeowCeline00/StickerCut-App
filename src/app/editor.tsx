@@ -1,9 +1,16 @@
-import { router, useLocalSearchParams } from "expo-router";
+import {
+  router,
+  useLocalSearchParams,
+} from "expo-router";
+
 import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
 import * as Clipboard from "expo-clipboard";
 
-import { useEffect, useState } from "react";
+import {
+  useEffect,
+  useState,
+} from "react";
 
 import { Image } from "expo-image";
 
@@ -16,8 +23,6 @@ import {
   useWindowDimensions,
   View,
 } from "react-native";
-import { Gesture, GestureDetector } from "react-native-gesture-handler";
-import { runOnJS } from "react-native-reanimated";
 
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -25,14 +30,20 @@ import { CanvasRuler } from "@/components/editor/CanvasRuler";
 import { GuideLine } from "@/components/editor/GuideLine";
 import { StickerItem } from "@/components/editor/StickerItem";
 
-import { CANVAS_COLOR_SWATCHES, DEFAULT_CANVAS_COLOR } from "@/constants/canvas-colors";
+import {
+  CANVAS_COLOR_SWATCHES,
+  DEFAULT_CANVAS_COLOR,
+} from "@/constants/canvas-colors";
+
 import { Colors } from "@/constants/colors";
+
 import {
   CUT_LINE_COLOR_SWATCHES,
   CUT_SHAPE_OPTIONS,
   DEFAULT_CUT_LINE_COLOR,
   DEFAULT_CUT_LINE_SHAPE,
 } from "@/constants/cut-line";
+
 import { DEFAULT_THEME_ID } from "@/constants/themes";
 
 import {
@@ -41,64 +52,125 @@ import {
   createStickerFromUrl,
 } from "@/image/importImage";
 
-import { getProject, saveProject } from "@/storage/projectStorage";
+import {
+  getProject,
+  saveProject,
+} from "@/storage/projectStorage";
 
 import { styles } from "@/styles/editor.styles";
 
+import type {
+  CanvasGuide,
+  StickerProject,
+} from "@/types/project";
+
 import type { StickerObject } from "@/types/sticker";
-import type { CanvasGuide, StickerProject } from "@/types/project";
 
 import { createId } from "@/utils/ids";
-import { getImageDimensions } from "@/utils/imageDimensions";
-import { computeDefaultStickerSizeMm, getNextZIndex, MIN_STICKER_MM } from "@/utils/stickers";
-import { clampStickerPositionMm } from "@/utils/stickerTransformMath";
-import { calculateEditorScale, mmToDisplay } from "@/utils/units";
 
-// Editor-only chrome (rulers, tab panel, header) never contributes to
-// the exported/printed artwork — only project.stickers + project.canvas
-// do. Kept here so it's obvious at a glance which parts of this screen
-// are "workspace decoration" vs. "real data."
+import {
+  getImageDimensions,
+} from "@/utils/imageDimensions";
+
+import {
+  computeDefaultStickerSizeMm,
+  getNextZIndex,
+  MIN_STICKER_MM,
+} from "@/utils/stickers";
+
+import {
+  clampStickerPositionMm,
+} from "@/utils/stickerTransformMath";
+
+import {
+  calculateEditorScale,
+  mmToDisplay,
+} from "@/utils/units";
+
 const DUPLICATE_OFFSET_MM = 6;
 
-type EditorTab = "canvas" | "cutLine";
+type EditorTab =
+  | "canvas"
+  | "cutLine";
 
 export default function EditorScreen() {
-  const params = useLocalSearchParams<{
-    projectId?: string;
-    presetId?: string;
-    widthMm?: string;
-    heightMm?: string;
-    background?: string;
-    orientation?: string;
-    themeId?: string;
-  }>();
+  const params =
+    useLocalSearchParams<{
+      projectId?: string;
+      presetId?: string;
+      widthMm?: string;
+      heightMm?: string;
+      background?: string;
+      orientation?: string;
+      themeId?: string;
+    }>();
 
-  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
+  const {
+    width: windowWidth,
+    height: windowHeight,
+  } = useWindowDimensions();
 
-  const [project, setProject] = useState<StickerProject | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [
+    project,
+    setProject,
+  ] =
+    useState<StickerProject | null>(
+      null,
+    );
 
-  const [selectedStickerId, setSelectedStickerId] = useState<string | null>(null);
-  const [isImporting, setIsImporting] = useState(false);
-  const [activeTab, setActiveTab] = useState<EditorTab>("canvas");
+  const [
+    loading,
+    setLoading,
+  ] = useState(true);
 
-  // Live preview for a guide still being dragged out of a ruler
-  // (CRITICAL FIX 8) — NOT part of project.guides yet, so it's never
-  // saved and never shown in Preview; it only exists here for the
-  // duration of the drag, driven by CanvasRuler's onGuideDragStart/
-  // onGuideDrag/onGuideDragEnd. Null whenever no guide drag is active.
-  const [draftGuide, setDraftGuide] = useState<{ axis: CanvasGuide["axis"]; positionMm: number } | null>(
-    null,
-  );
+  const [
+    selectedStickerId,
+    setSelectedStickerId,
+  ] =
+    useState<string | null>(
+      null,
+    );
+
+  const [
+    isImporting,
+    setIsImporting,
+  ] = useState(false);
+
+  const [
+    activeTab,
+    setActiveTab,
+  ] =
+    useState<EditorTab>(
+      "canvas",
+    );
+
+  /**
+   * Temporary guide that follows the pointer while the user drags
+   * from a ruler.
+   *
+   * It is NOT persisted until the drag finishes.
+   */
+  const [
+    draftGuide,
+    setDraftGuide,
+  ] =
+    useState<{
+      axis: CanvasGuide["axis"];
+      positionMm: number;
+    } | null>(null);
 
   useEffect(() => {
     initialiseProject();
+
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function initialiseProject() {
     if (params.projectId) {
-      const existing = await getProject(params.projectId);
+      const existing =
+        await getProject(
+          params.projectId,
+        );
 
       if (existing) {
         setProject(existing);
@@ -107,28 +179,61 @@ export default function EditorScreen() {
       }
     }
 
-    const widthMm = Number(params.widthMm) || 210;
-    const heightMm = Number(params.heightMm) || 297;
-    const now = Date.now();
+    const widthMm =
+      Number(params.widthMm) ||
+      210;
 
-    const created: StickerProject = {
-      id: createId("project"),
-      name: "Untitled",
-      createdAt: now,
-      updatedAt: now,
-      canvas: {
-        presetId: params.presetId ?? "a4",
-        widthMm,
-        heightMm,
-        orientation: params.orientation === "landscape" ? "landscape" : "portrait",
-        background: params.background === "transparent" ? "transparent" : "white",
-      },
-      stickers: [],
-      themeId:
-        params.themeId === "dark" || params.themeId === "pink" || params.themeId === "light"
-          ? params.themeId
-          : DEFAULT_THEME_ID,
-    };
+    const heightMm =
+      Number(params.heightMm) ||
+      297;
+
+    const now =
+      Date.now();
+
+    const created: StickerProject =
+      {
+        id: createId(
+          "project",
+        ),
+
+        name: "Untitled",
+
+        createdAt: now,
+        updatedAt: now,
+
+        canvas: {
+          presetId:
+            params.presetId ??
+            "a4",
+
+          widthMm,
+          heightMm,
+
+          orientation:
+            params.orientation ===
+            "landscape"
+              ? "landscape"
+              : "portrait",
+
+          background:
+            params.background ===
+            "transparent"
+              ? "transparent"
+              : "white",
+        },
+
+        stickers: [],
+
+        themeId:
+          params.themeId ===
+            "dark" ||
+          params.themeId ===
+            "pink" ||
+          params.themeId ===
+            "light"
+            ? params.themeId
+            : DEFAULT_THEME_ID,
+      };
 
     setProject(created);
     setLoading(false);
@@ -140,19 +245,25 @@ export default function EditorScreen() {
     }
 
     try {
-      await saveProject(project);
-      Alert.alert("Project saved", "Your StickerCut project was saved on this device.");
+      await saveProject(
+        project,
+      );
+
+      Alert.alert(
+        "Project saved",
+        "Your StickerCut project was saved on this device.",
+      );
     } catch {
-      Alert.alert("Save failed", "StickerCut could not save this project.");
+      Alert.alert(
+        "Save failed",
+        "StickerCut could not save this project.",
+      );
     }
   }
 
   /**
-   * Preview loads the project fresh, by id, from storage (see
-   * preview.tsx) — so the current in-memory state has to actually be
-   * saved first, or a brand-new/just-edited project would open an
-   * empty or stale preview. Errors are surfaced rather than silently
-   * navigating to a preview that won't match what's on screen.
+   * Preview reloads the project from storage, so save the current
+   * in-memory project before navigating.
    */
   async function handlePreview() {
     if (!project) {
@@ -160,73 +271,115 @@ export default function EditorScreen() {
     }
 
     try {
-      await saveProject(project);
+      await saveProject(
+        project,
+      );
     } catch {
       Alert.alert(
         "Couldn't open preview",
         "StickerCut couldn't save this project, so Preview would show stale or missing content.",
       );
+
       return;
     }
 
-    router.push({ pathname: "/preview", params: { projectId: project.id } });
-  }
+    router.push({
+      pathname:
+        "/preview",
 
-  /**
-   * Applies a finished drag-to-move gesture. Called once, when the
-   * finger lifts (see StickerItem.tsx) — never per-frame — with the
-   * physical distance moved in mm. A no-op delta (a tap that never
-   * became a drag) is skipped so tapping a sticker doesn't trigger
-   * an unnecessary autosave. The result is clamped to the page:
-   * xMm/yMm >= 0 and xMm+widthMm/yMm+heightMm <= canvas size.
-   */
-  function handleStickerMove(id: string, deltaXMm: number, deltaYMm: number) {
-    if (!project || (deltaXMm === 0 && deltaYMm === 0)) {
-      return;
-    }
-
-    const updatedProject: StickerProject = {
-      ...project,
-      stickers: project.stickers.map((sticker) => {
-        if (sticker.id !== id) {
-          return sticker;
-        }
-
-        const clamped = clampStickerPositionMm(
-          sticker.xMm + deltaXMm,
-          sticker.yMm + deltaYMm,
-          sticker.widthMm,
-          sticker.heightMm,
-          project.canvas.widthMm,
-          project.canvas.heightMm,
-        );
-
-        return { ...sticker, xMm: clamped.xMm, yMm: clamped.yMm };
-      }),
-    };
-
-    setProject(updatedProject);
-
-    saveProject(updatedProject).catch(() => {
-      // Same fallback reasoning as commitNewStickers below: the
-      // manual Save button still covers a failed autosave.
+      params: {
+        projectId:
+          project.id,
+      },
     });
   }
 
   /**
-   * Applies a finished drag-to-resize gesture from any of the four
-   * corner handles (see StickerItem.tsx). deltaXMm/deltaYMm are only
-   * ever non-zero for a top- or left-anchored corner, where resizing
-   * also shifts the sticker's position so the OPPOSITE corner stays
-   * put — StickerItem.tsx already computes an aspect-ratio-correct,
-   * MIN_STICKER_MM-respecting result before it ever gets here, so
-   * this handler's own Math.max is just a defense-in-depth floor,
-   * not the primary place that logic lives.
+   * Commit a completed move gesture.
+   *
+   * StickerItem reports physical movement in millimeters.
+   */
+  function handleStickerMove(
+    id: string,
+    deltaXMm: number,
+    deltaYMm: number,
+  ) {
+    if (
+      !project ||
+      (
+        deltaXMm === 0 &&
+        deltaYMm === 0
+      )
+    ) {
+      return;
+    }
+
+    const updatedProject: StickerProject =
+      {
+        ...project,
+
+        stickers:
+          project.stickers.map(
+            (sticker) => {
+              if (
+                sticker.id !== id
+              ) {
+                return sticker;
+              }
+
+              const clamped =
+                clampStickerPositionMm(
+                  sticker.xMm +
+                    deltaXMm,
+
+                  sticker.yMm +
+                    deltaYMm,
+
+                  sticker.widthMm,
+                  sticker.heightMm,
+
+                  project.canvas
+                    .widthMm,
+
+                  project.canvas
+                    .heightMm,
+                );
+
+              return {
+                ...sticker,
+
+                xMm:
+                  clamped.xMm,
+
+                yMm:
+                  clamped.yMm,
+              };
+            },
+          ),
+      };
+
+    setProject(
+      updatedProject,
+    );
+
+    saveProject(
+      updatedProject,
+    ).catch(() => {
+      /**
+       * Manual Save remains available if autosave fails.
+       */
+    });
+  }
+
+  /**
+   * Commit a completed resize gesture.
    */
   function handleStickerResize(
     id: string,
+
     deltaWidthMm: number,
     deltaHeightMm: number,
+
     deltaXMm: number,
     deltaYMm: number,
   ) {
@@ -234,776 +387,1668 @@ export default function EditorScreen() {
       return;
     }
 
-    if (deltaWidthMm === 0 && deltaHeightMm === 0 && deltaXMm === 0 && deltaYMm === 0) {
+    if (
+      deltaWidthMm === 0 &&
+      deltaHeightMm === 0 &&
+      deltaXMm === 0 &&
+      deltaYMm === 0
+    ) {
       return;
     }
 
-    const updatedProject: StickerProject = {
-      ...project,
-      stickers: project.stickers.map((sticker) => {
-        if (sticker.id !== id) {
-          return sticker;
-        }
+    const updatedProject: StickerProject =
+      {
+        ...project,
 
-        const widthMm = Math.max(MIN_STICKER_MM, sticker.widthMm + deltaWidthMm);
-        const heightMm = Math.max(MIN_STICKER_MM, sticker.heightMm + deltaHeightMm);
+        stickers:
+          project.stickers.map(
+            (sticker) => {
+              if (
+                sticker.id !== id
+              ) {
+                return sticker;
+              }
 
-        const clamped = clampStickerPositionMm(
-          sticker.xMm + deltaXMm,
-          sticker.yMm + deltaYMm,
-          widthMm,
-          heightMm,
-          project.canvas.widthMm,
-          project.canvas.heightMm,
-        );
+              const widthMm =
+                Math.max(
+                  MIN_STICKER_MM,
 
-        return { ...sticker, xMm: clamped.xMm, yMm: clamped.yMm, widthMm, heightMm };
-      }),
-    };
+                  sticker.widthMm +
+                    deltaWidthMm,
+                );
 
-    setProject(updatedProject);
+              const heightMm =
+                Math.max(
+                  MIN_STICKER_MM,
 
-    saveProject(updatedProject).catch(() => {
-      // Same fallback reasoning as commitNewStickers below: the
-      // manual Save button still covers a failed autosave.
-    });
+                  sticker.heightMm +
+                    deltaHeightMm,
+                );
+
+              const clamped =
+                clampStickerPositionMm(
+                  sticker.xMm +
+                    deltaXMm,
+
+                  sticker.yMm +
+                    deltaYMm,
+
+                  widthMm,
+                  heightMm,
+
+                  project.canvas
+                    .widthMm,
+
+                  project.canvas
+                    .heightMm,
+                );
+
+              return {
+                ...sticker,
+
+                xMm:
+                  clamped.xMm,
+
+                yMm:
+                  clamped.yMm,
+
+                widthMm,
+                heightMm,
+              };
+            },
+          ),
+      };
+
+    setProject(
+      updatedProject,
+    );
+
+    saveProject(
+      updatedProject,
+    ).catch(() => {});
   }
 
   /**
-   * Applies a finished rotation-handle gesture. Like onMove/onResize,
-   * this is called once (when the finger lifts) with a DEGREES DELTA,
-   * not an absolute angle — StickerItem.tsx computes the delta from
-   * the handle's own drag, this handler just adds it to the committed
-   * rotation and normalizes into [0, 360).
+   * Commit a completed rotation gesture.
    */
-  function handleStickerRotate(id: string, deltaDegrees: number) {
-    if (!project || deltaDegrees === 0) {
+  function handleStickerRotate(
+    id: string,
+    deltaDegrees: number,
+  ) {
+    if (
+      !project ||
+      deltaDegrees === 0
+    ) {
       return;
     }
 
-    const updatedProject: StickerProject = {
-      ...project,
-      stickers: project.stickers.map((sticker) =>
-        sticker.id === id
-          ? { ...sticker, rotation: ((sticker.rotation + deltaDegrees) % 360 + 360) % 360 }
-          : sticker,
-      ),
-    };
+    const updatedProject: StickerProject =
+      {
+        ...project,
 
-    setProject(updatedProject);
-    saveProject(updatedProject).catch(() => {});
+        stickers:
+          project.stickers.map(
+            (sticker) =>
+              sticker.id === id
+                ? {
+                    ...sticker,
+
+                    rotation:
+                      (
+                        (
+                          sticker.rotation +
+                          deltaDegrees
+                        ) %
+                          360 +
+                        360
+                      ) %
+                      360,
+                  }
+                : sticker,
+          ),
+      };
+
+    setProject(
+      updatedProject,
+    );
+
+    saveProject(
+      updatedProject,
+    ).catch(() => {});
   }
 
   function handleToggleAspectLocked() {
-    if (!project || !selectedStickerId) {
+    if (
+      !project ||
+      !selectedStickerId
+    ) {
       return;
     }
 
-    const updatedProject: StickerProject = {
-      ...project,
-      stickers: project.stickers.map((sticker) =>
-        sticker.id === selectedStickerId
-          ? { ...sticker, aspectLocked: !(sticker.aspectLocked ?? true) }
-          : sticker,
-      ),
-    };
+    const updatedProject: StickerProject =
+      {
+        ...project,
 
-    setProject(updatedProject);
-    saveProject(updatedProject).catch(() => {});
+        stickers:
+          project.stickers.map(
+            (sticker) =>
+              sticker.id ===
+              selectedStickerId
+                ? {
+                    ...sticker,
+
+                    aspectLocked:
+                      !(
+                        sticker.aspectLocked ??
+                        true
+                      ),
+                  }
+                : sticker,
+          ),
+      };
+
+    setProject(
+      updatedProject,
+    );
+
+    saveProject(
+      updatedProject,
+    ).catch(() => {});
   }
 
   /**
-   * Resets the selected sticker's size (back to the default computed
-   * from its original imported pixel dimensions) and rotation to 0 —
-   * an undo for "I've messed with this sticker's transform and want
-   * to start over," without removing and re-importing it. Position
-   * is left alone since that's rarely what someone means by "revert."
+   * Reset selected sticker to its default imported size and zero rotation.
    */
   function handleRevertSelected() {
-    if (!project || !selectedStickerId) {
+    if (
+      !project ||
+      !selectedStickerId
+    ) {
       return;
     }
 
-    const updatedProject: StickerProject = {
-      ...project,
-      stickers: project.stickers.map((sticker) => {
-        if (sticker.id !== selectedStickerId) {
-          return sticker;
-        }
+    const updatedProject: StickerProject =
+      {
+        ...project,
 
-        const { widthMm, heightMm } = computeDefaultStickerSizeMm(
-          sticker.originalWidthPx ?? sticker.widthMm,
-          sticker.originalHeightPx ?? sticker.heightMm,
-        );
+        stickers:
+          project.stickers.map(
+            (sticker) => {
+              if (
+                sticker.id !==
+                selectedStickerId
+              ) {
+                return sticker;
+              }
 
-        return { ...sticker, widthMm, heightMm, rotation: 0, aspectLocked: true };
-      }),
-    };
+              const {
+                widthMm,
+                heightMm,
+              } =
+                computeDefaultStickerSizeMm(
+                  sticker.originalWidthPx ??
+                    sticker.widthMm,
 
-    setProject(updatedProject);
-    saveProject(updatedProject).catch(() => {});
+                  sticker.originalHeightPx ??
+                    sticker.heightMm,
+                );
+
+              return {
+                ...sticker,
+
+                widthMm,
+                heightMm,
+
+                rotation: 0,
+
+                aspectLocked: true,
+              };
+            },
+          ),
+      };
+
+    setProject(
+      updatedProject,
+    );
+
+    saveProject(
+      updatedProject,
+    ).catch(() => {});
   }
 
-  function handleSetCutLineShape(shape: (typeof CUT_SHAPE_OPTIONS)[number]["id"]) {
-    if (!project || !selectedStickerId) {
+  function handleSetCutLineShape(
+    shape:
+      (typeof CUT_SHAPE_OPTIONS)[number]["id"],
+  ) {
+    if (
+      !project ||
+      !selectedStickerId
+    ) {
       return;
     }
 
-    const updatedProject: StickerProject = {
-      ...project,
-      stickers: project.stickers.map((sticker) =>
-        sticker.id === selectedStickerId
-          ? { ...sticker, cutLine: { ...sticker.cutLine, shape } }
-          : sticker,
-      ),
-    };
+    const updatedProject: StickerProject =
+      {
+        ...project,
 
-    setProject(updatedProject);
-    saveProject(updatedProject).catch(() => {});
+        stickers:
+          project.stickers.map(
+            (sticker) =>
+              sticker.id ===
+              selectedStickerId
+                ? {
+                    ...sticker,
+
+                    cutLine: {
+                      ...sticker.cutLine,
+                      shape,
+                    },
+                  }
+                : sticker,
+          ),
+      };
+
+    setProject(
+      updatedProject,
+    );
+
+    saveProject(
+      updatedProject,
+    ).catch(() => {});
   }
 
-  function handleSetCutLineColor(color: string) {
-    if (!project || !selectedStickerId) {
+  function handleSetCutLineColor(
+    color: string,
+  ) {
+    if (
+      !project ||
+      !selectedStickerId
+    ) {
       return;
     }
 
-    const updatedProject: StickerProject = {
-      ...project,
-      stickers: project.stickers.map((sticker) =>
-        sticker.id === selectedStickerId
-          ? { ...sticker, cutLine: { ...sticker.cutLine, color } }
-          : sticker,
-      ),
-    };
+    const updatedProject: StickerProject =
+      {
+        ...project,
 
-    setProject(updatedProject);
-    saveProject(updatedProject).catch(() => {});
-  }
+        stickers:
+          project.stickers.map(
+            (sticker) =>
+              sticker.id ===
+              selectedStickerId
+                ? {
+                    ...sticker,
 
-  // Shared by every import source: merge new stickers into the
-  // project, select the last one added, and autosave so imported
-  // artwork survives even if the user backs out without tapping
-  // Save.
-  async function commitNewStickers(newStickers: StickerObject[]) {
-    if (!project || newStickers.length === 0) {
-      return;
-    }
+                    cutLine: {
+                      ...sticker.cutLine,
+                      color,
+                    },
+                  }
+                : sticker,
+          ),
+      };
 
-    const updatedProject: StickerProject = {
-      ...project,
-      stickers: [...project.stickers, ...newStickers],
-    };
+    setProject(
+      updatedProject,
+    );
 
-    setProject(updatedProject);
-    setSelectedStickerId(newStickers[newStickers.length - 1].id);
-
-    try {
-      await saveProject(updatedProject);
-    } catch {
-      // handleSave already surfaces save failures to the user; a
-      // silent autosave failure here just means the manual Save
-      // button is still available as a fallback.
-    }
+    saveProject(
+      updatedProject,
+    ).catch(() => {});
   }
 
   /**
-   * Both of these take the sticker id as a direct parameter rather than
-   * reading selectedStickerId from state (CRITICAL FIX 10). The old
-   * object-row buttons called `setSelectedStickerId(sticker.id)`
-   * immediately followed by a handler that read `selectedStickerId` —
-   * unsafe, since React state updates are asynchronous: the handler
-   * could run before that state update was applied, silently acting on
-   * the PREVIOUS selection instead of the row the user actually tapped.
-   * The selection-actions row (which already has selectedStickerId
-   * available because a sticker IS selected to show that row at all)
-   * calls these with `selectedStickerId` explicitly; object-row buttons
-   * call them with the row's own `sticker.id` directly.
+   * Add new stickers without replacing existing ones.
    */
-  function handleDuplicateSticker(id: string) {
+  async function commitNewStickers(
+    newStickers: StickerObject[],
+  ) {
+    if (
+      !project ||
+      newStickers.length === 0
+    ) {
+      return;
+    }
+
+    const updatedProject: StickerProject =
+      {
+        ...project,
+
+        stickers: [
+          ...project.stickers,
+          ...newStickers,
+        ],
+      };
+
+    setProject(
+      updatedProject,
+    );
+
+    setSelectedStickerId(
+      newStickers[
+        newStickers.length -
+          1
+      ].id,
+    );
+
+    try {
+      await saveProject(
+        updatedProject,
+      );
+    } catch {
+      /**
+       * Manual Save is still available.
+       */
+    }
+  }
+
+  function handleDuplicateSticker(
+    id: string,
+  ) {
     if (!project) {
       return;
     }
 
-    const source = project.stickers.find((sticker) => sticker.id === id);
+    const source =
+      project.stickers.find(
+        (sticker) =>
+          sticker.id === id,
+      );
+
     if (!source) {
       return;
     }
 
-    const duplicate: StickerObject = {
-      ...source,
-      id: createId("sticker"),
-      xMm: Math.min(
-        source.xMm + DUPLICATE_OFFSET_MM,
-        Math.max(0, project.canvas.widthMm - source.widthMm),
-      ),
-      yMm: Math.min(
-        source.yMm + DUPLICATE_OFFSET_MM,
-        Math.max(0, project.canvas.heightMm - source.heightMm),
-      ),
-      zIndex: getNextZIndex(project.stickers),
-    };
+    const duplicate: StickerObject =
+      {
+        ...source,
 
-    commitNewStickers([duplicate]);
+        id: createId(
+          "sticker",
+        ),
+
+        xMm: Math.min(
+          source.xMm +
+            DUPLICATE_OFFSET_MM,
+
+          Math.max(
+            0,
+
+            project.canvas
+              .widthMm -
+              source.widthMm,
+          ),
+        ),
+
+        yMm: Math.min(
+          source.yMm +
+            DUPLICATE_OFFSET_MM,
+
+          Math.max(
+            0,
+
+            project.canvas
+              .heightMm -
+              source.heightMm,
+          ),
+        ),
+
+        zIndex:
+          getNextZIndex(
+            project.stickers,
+          ),
+      };
+
+    commitNewStickers([
+      duplicate,
+    ]);
   }
 
-  function handleDeleteSticker(id: string) {
+  function handleDeleteSticker(
+    id: string,
+  ) {
     if (!project) {
       return;
     }
 
-    const updatedProject: StickerProject = {
-      ...project,
-      stickers: project.stickers.filter((sticker) => sticker.id !== id),
-    };
+    const updatedProject: StickerProject =
+      {
+        ...project,
 
-    setSelectedStickerId((current) => (current === id ? null : current));
-    setProject(updatedProject);
+        stickers:
+          project.stickers.filter(
+            (sticker) =>
+              sticker.id !== id,
+          ),
+      };
 
-    saveProject(updatedProject).catch(() => {
-      // Manual Save is still available if this silent autosave fails.
+    setSelectedStickerId(
+      (current) =>
+        current === id
+          ? null
+          : current,
+    );
+
+    setProject(
+      updatedProject,
+    );
+
+    saveProject(
+      updatedProject,
+    ).catch(() => {});
+  }
+
+  // ============================================================
+  // GUIDES
+  // ============================================================
+
+  function handleCreateGuide(
+    axis:
+      CanvasGuide["axis"],
+
+    positionMm: number,
+  ) {
+    if (!project) {
+      return;
+    }
+
+    const guide: CanvasGuide =
+      {
+        id: createId(
+          "guide",
+        ),
+
+        axis,
+        positionMm,
+      };
+
+    const updatedProject: StickerProject =
+      {
+        ...project,
+
+        guides: [
+          ...(project.guides ??
+            []),
+
+          guide,
+        ],
+      };
+
+    setProject(
+      updatedProject,
+    );
+
+    saveProject(
+      updatedProject,
+    ).catch(() => {});
+  }
+
+  function handleGuideDragStart(
+    axis:
+      CanvasGuide["axis"],
+  ) {
+    setDraftGuide({
+      axis,
+      positionMm: 0,
     });
   }
 
-  /**
-   * Adds a new reference guide, dragged out from the top ruler
-   * (axis "horizontal") or the left ruler (axis "vertical"). positionMm
-   * is already clamped to the page by CanvasRuler. Guides are
-   * editor-only: they live on project.guides and preview.tsx never
-   * reads that field, so they never appear in Preview or any future
-   * export.
-   */
-  function handleCreateGuide(axis: CanvasGuide["axis"], positionMm: number) {
-    if (!project) {
-      return;
-    }
+  function handleGuideDrag(
+    axis:
+      CanvasGuide["axis"],
 
-    const guide: CanvasGuide = { id: createId("guide"), axis, positionMm };
-
-    const updatedProject: StickerProject = {
-      ...project,
-      guides: [...(project.guides ?? []), guide],
-    };
-
-    setProject(updatedProject);
-    saveProject(updatedProject).catch(() => {});
+    positionMm: number,
+  ) {
+    setDraftGuide({
+      axis,
+      positionMm,
+    });
   }
 
-  /**
-   * The three halves of a ruler's guide-drag lifecycle (CRITICAL
-   * FIX 8), wired to BOTH rulers with their own axis baked in via the
-   * closures below. onGuideDragStart/onGuideDrag update draftGuide only
-   * (pure UI preview, no project mutation, no autosave — it can fire on
-   * every animation frame). onGuideDragEnd either commits a real guide
-   * via handleCreateGuide, or — when the drag never moved far enough to
-   * count as intentional (positionMm is null; see CanvasRuler.tsx's
-   * GUIDE_DRAG_THRESHOLD_PX) — just clears the draft with nothing
-   * created.
-   */
-  function handleGuideDragStart(axis: CanvasGuide["axis"]) {
-    setDraftGuide({ axis, positionMm: 0 });
-  }
+  function handleGuideDragEnd(
+    axis:
+      CanvasGuide["axis"],
 
-  function handleGuideDrag(axis: CanvasGuide["axis"], positionMm: number) {
-    setDraftGuide({ axis, positionMm });
-  }
-
-  function handleGuideDragEnd(axis: CanvasGuide["axis"], positionMm: number | null) {
+    positionMm:
+      | number
+      | null,
+  ) {
     setDraftGuide(null);
 
-    if (positionMm !== null) {
-      handleCreateGuide(axis, positionMm);
+    if (
+      positionMm !== null
+    ) {
+      handleCreateGuide(
+        axis,
+        positionMm,
+      );
     }
   }
 
-  function handleMoveGuide(id: string, positionMm: number) {
+  function handleMoveGuide(
+    id: string,
+    positionMm: number,
+  ) {
     if (!project) {
       return;
     }
 
-    const updatedProject: StickerProject = {
-      ...project,
-      guides: (project.guides ?? []).map((guide) => {
-        if (guide.id !== id) {
-          return guide;
-        }
+    const updatedProject: StickerProject =
+      {
+        ...project,
 
-        const maxMm = guide.axis === "horizontal" ? project.canvas.heightMm : project.canvas.widthMm;
-        return { ...guide, positionMm: Math.min(Math.max(0, positionMm), maxMm) };
-      }),
-    };
+        guides:
+          (
+            project.guides ??
+            []
+          ).map(
+            (guide) => {
+              if (
+                guide.id !== id
+              ) {
+                return guide;
+              }
 
-    setProject(updatedProject);
-    saveProject(updatedProject).catch(() => {});
+              const maxMm =
+                guide.axis ===
+                "horizontal"
+                  ? project.canvas
+                      .heightMm
+                  : project.canvas
+                      .widthMm;
+
+              return {
+                ...guide,
+
+                positionMm:
+                  Math.min(
+                    Math.max(
+                      0,
+                      positionMm,
+                    ),
+
+                    maxMm,
+                  ),
+              };
+            },
+          ),
+      };
+
+    setProject(
+      updatedProject,
+    );
+
+    saveProject(
+      updatedProject,
+    ).catch(() => {});
   }
 
-  function handleDeleteGuide(id: string) {
+  function handleDeleteGuide(
+    id: string,
+  ) {
     if (!project) {
       return;
     }
 
-    const updatedProject: StickerProject = {
-      ...project,
-      guides: (project.guides ?? []).filter((guide) => guide.id !== id),
-    };
+    const updatedProject: StickerProject =
+      {
+        ...project,
 
-    setProject(updatedProject);
-    saveProject(updatedProject).catch(() => {});
+        guides:
+          (
+            project.guides ??
+            []
+          ).filter(
+            (guide) =>
+              guide.id !== id,
+          ),
+      };
+
+    setProject(
+      updatedProject,
+    );
+
+    saveProject(
+      updatedProject,
+    ).catch(() => {});
   }
 
-  function handleSetBackground(background: "white" | "transparent") {
+  // ============================================================
+  // CANVAS SETTINGS
+  // ============================================================
+
+  function handleSetBackground(
+    background:
+      | "white"
+      | "transparent",
+  ) {
     if (!project) {
       return;
     }
 
-    const updatedProject: StickerProject = {
-      ...project,
-      canvas: { ...project.canvas, background },
-    };
+    const updatedProject: StickerProject =
+      {
+        ...project,
 
-    setProject(updatedProject);
-    saveProject(updatedProject).catch(() => {});
+        canvas: {
+          ...project.canvas,
+          background,
+        },
+      };
+
+    setProject(
+      updatedProject,
+    );
+
+    saveProject(
+      updatedProject,
+    ).catch(() => {});
   }
 
-  function handleSetCanvasColor(color: string) {
+  function handleSetCanvasColor(
+    color: string,
+  ) {
     if (!project) {
       return;
     }
 
-    const updatedProject: StickerProject = {
-      ...project,
-      canvas: { ...project.canvas, canvasColor: color },
-    };
+    const updatedProject: StickerProject =
+      {
+        ...project,
 
-    setProject(updatedProject);
-    saveProject(updatedProject).catch(() => {});
+        canvas: {
+          ...project.canvas,
+
+          canvasColor:
+            color,
+        },
+      };
+
+    setProject(
+      updatedProject,
+    );
+
+    saveProject(
+      updatedProject,
+    ).catch(() => {});
   }
 
-  /**
-   * "+ Add image" opens this chooser instead of jumping straight to
-   * Photos, matching the web reference's Add to Canvas menu
-   * (Photos / Files / Paste). Kept as a plain Alert action sheet —
-   * no new UI library — since three text options don't need one.
-   */
+  // ============================================================
+  // IMPORT UI
+  // ============================================================
+
   function handleAddToCanvas() {
     if (isImporting) {
       return;
     }
 
-    Alert.alert("Add to Canvas", "Choose where to import artwork from.", [
-      { text: "Photos", onPress: handleAddFromPhotos },
-      { text: "Files", onPress: handleAddFromFiles },
-      { text: "Paste", onPress: handlePasteFromClipboard },
-      { text: "Cancel", style: "cancel" },
-    ]);
+    Alert.alert(
+      "Add to Canvas",
+
+      "Choose where to import artwork from.",
+
+      [
+        {
+          text:
+            "Photos",
+
+          onPress:
+            handleAddFromPhotos,
+        },
+
+        {
+          text:
+            "Files",
+
+          onPress:
+            handleAddFromFiles,
+        },
+
+        {
+          text:
+            "Paste",
+
+          onPress:
+            handlePasteFromClipboard,
+        },
+
+        {
+          text:
+            "Cancel",
+
+          style:
+            "cancel",
+        },
+      ],
+    );
   }
 
-  /**
-   * Imports one or more images from the photo library. Each image
-   * is copied into StickerCut's own persistent storage (see
-   * utils/imageStorage.ts — never the OS's temporary picker URI)
-   * via the shared pipeline in image/importImage.ts.
-   */
   async function handleAddFromPhotos() {
-    if (!project || isImporting) {
+    if (
+      !project ||
+      isImporting
+    ) {
       return;
     }
 
     setIsImporting(true);
 
     try {
-      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      const permission =
+        await ImagePicker.requestMediaLibraryPermissionsAsync();
 
-      if (!permission.granted) {
+      if (
+        !permission.granted
+      ) {
         Alert.alert(
           "Permission needed",
+
           "StickerCut needs access to your photos to import artwork.",
         );
+
         return;
       }
 
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ["images"],
-        allowsMultipleSelection: true,
-        quality: 1,
-      });
+      const result =
+        await ImagePicker.launchImageLibraryAsync(
+          {
+            mediaTypes: [
+              "images",
+            ],
 
-      if (result.canceled || result.assets.length === 0) {
-        return;
-      }
+            allowsMultipleSelection:
+              true,
 
-      let nextZIndex = getNextZIndex(project.stickers);
-      const newStickers: StickerObject[] = [];
-
-      for (const asset of result.assets) {
-        const sticker = await createStickerFromImportedImage(
-          { uri: asset.uri, width: asset.width, height: asset.height, fileName: asset.fileName },
-          project.canvas.widthMm,
-          project.canvas.heightMm,
-          nextZIndex,
-          newStickers.length,
+            quality: 1,
+          },
         );
 
-        newStickers.push(sticker);
+      if (
+        result.canceled ||
+        result.assets
+          .length === 0
+      ) {
+        return;
+      }
+
+      let nextZIndex =
+        getNextZIndex(
+          project.stickers,
+        );
+
+      const newStickers: StickerObject[] =
+        [];
+
+      for (
+        const asset of result.assets
+      ) {
+        const sticker =
+          await createStickerFromImportedImage(
+            {
+              uri:
+                asset.uri,
+
+              width:
+                asset.width,
+
+              height:
+                asset.height,
+
+              fileName:
+                asset.fileName,
+            },
+
+            project.canvas
+              .widthMm,
+
+            project.canvas
+              .heightMm,
+
+            nextZIndex,
+
+            /**
+             * Include existing sticker count so repeated import actions
+             * don't always use exactly the same first placement.
+             */
+            project.stickers
+              .length +
+              newStickers.length,
+          );
+
+        newStickers.push(
+          sticker,
+        );
+
         nextZIndex += 1;
       }
 
-      await commitNewStickers(newStickers);
+      await commitNewStickers(
+        newStickers,
+      );
     } catch {
-      Alert.alert("Import failed", "StickerCut could not import that image.");
+      Alert.alert(
+        "Import failed",
+
+        "StickerCut could not import that image.",
+      );
     } finally {
       setIsImporting(false);
     }
   }
 
-  /**
-   * Imports one or more image files via the system file picker.
-   * Unlike expo-image-picker, expo-document-picker does not return
-   * pixel dimensions, so getImageDimensions() (utils/imageDimensions.ts,
-   * built on React Native's own Image.getSize) reads them from the
-   * picked file before it reaches the shared pipeline.
-   */
   async function handleAddFromFiles() {
-    if (!project || isImporting) {
+    if (
+      !project ||
+      isImporting
+    ) {
       return;
     }
 
     setIsImporting(true);
 
     try {
-      const result = await DocumentPicker.getDocumentAsync({
-        type: ["image/png", "image/jpeg", "image/webp"],
-        multiple: true,
-        copyToCacheDirectory: true,
-      });
+      const result =
+        await DocumentPicker.getDocumentAsync(
+          {
+            type: [
+              "image/png",
+              "image/jpeg",
+              "image/webp",
+            ],
 
-      if (result.canceled || !result.assets || result.assets.length === 0) {
+            multiple: true,
+
+            copyToCacheDirectory:
+              true,
+          },
+        );
+
+      if (
+        result.canceled ||
+        !result.assets ||
+        result.assets
+          .length === 0
+      ) {
         return;
       }
 
-      let nextZIndex = getNextZIndex(project.stickers);
-      const newStickers: StickerObject[] = [];
-
-      for (const asset of result.assets) {
-        const { width, height } = await getImageDimensions(asset.uri);
-
-        const sticker = await createStickerFromImportedImage(
-          { uri: asset.uri, width, height, fileName: asset.name },
-          project.canvas.widthMm,
-          project.canvas.heightMm,
-          nextZIndex,
-          newStickers.length,
+      let nextZIndex =
+        getNextZIndex(
+          project.stickers,
         );
 
-        newStickers.push(sticker);
+      const newStickers: StickerObject[] =
+        [];
+
+      for (
+        const asset of result.assets
+      ) {
+        const {
+          width,
+          height,
+        } =
+          await getImageDimensions(
+            asset.uri,
+          );
+
+        const sticker =
+          await createStickerFromImportedImage(
+            {
+              uri:
+                asset.uri,
+
+              width,
+              height,
+
+              fileName:
+                asset.name,
+            },
+
+            project.canvas
+              .widthMm,
+
+            project.canvas
+              .heightMm,
+
+            nextZIndex,
+
+            project.stickers
+              .length +
+              newStickers.length,
+          );
+
+        newStickers.push(
+          sticker,
+        );
+
         nextZIndex += 1;
       }
 
-      await commitNewStickers(newStickers);
+      await commitNewStickers(
+        newStickers,
+      );
     } catch {
-      Alert.alert("Import failed", "StickerCut could not import that file.");
+      Alert.alert(
+        "Import failed",
+
+        "StickerCut could not import that file.",
+      );
     } finally {
       setIsImporting(false);
     }
   }
 
-  /**
-   * Pastes from the clipboard — either actual image data (e.g.
-   * "Copy image" in a browser, or a screenshot) or a plain text URL
-   * that points at an image (e.g. "Copy image address"). These are
-   * genuinely different clipboard contents, so they're checked in
-   * order: real image bytes first, then fall back to treating the
-   * clipboard as a link.
-   */
   async function handlePasteFromClipboard() {
-    if (!project || isImporting) {
+    if (
+      !project ||
+      isImporting
+    ) {
       return;
     }
 
     setIsImporting(true);
 
     try {
-      const hasImage = await Clipboard.hasImageAsync();
+      const hasImage =
+        await Clipboard.hasImageAsync();
 
       if (hasImage) {
-        const clipboardImage = await Clipboard.getImageAsync({ format: "png" });
+        const clipboardImage =
+          await Clipboard.getImageAsync(
+            {
+              format:
+                "png",
+            },
+          );
 
-        if (!clipboardImage) {
+        if (
+          !clipboardImage
+        ) {
           Alert.alert(
             "Paste unavailable",
-            "StickerCut couldn't read an image from the clipboard. On iOS this can also mean paste permission was denied.",
+
+            "StickerCut couldn't read an image from the clipboard.",
           );
+
           return;
         }
 
-        const nextZIndex = getNextZIndex(project.stickers);
+        const nextZIndex =
+          getNextZIndex(
+            project.stickers,
+          );
 
-        const sticker = createStickerFromClipboardImage(
-          {
-            dataUri: clipboardImage.data,
-            width: clipboardImage.size.width,
-            height: clipboardImage.size.height,
-          },
-          project.canvas.widthMm,
-          project.canvas.heightMm,
-          nextZIndex,
-          0,
-        );
+        const sticker =
+          createStickerFromClipboardImage(
+            {
+              dataUri:
+                clipboardImage.data,
 
-        await commitNewStickers([sticker]);
+              width:
+                clipboardImage
+                  .size.width,
+
+              height:
+                clipboardImage
+                  .size.height,
+            },
+
+            project.canvas
+              .widthMm,
+
+            project.canvas
+              .heightMm,
+
+            nextZIndex,
+
+            /**
+             * Do not always pass 0 here.
+             *
+             * Using the existing object count prevents every pasted
+             * sticker from receiving exactly the same initial placement.
+             */
+            project.stickers
+              .length,
+          );
+
+        await commitNewStickers([
+          sticker,
+        ]);
+
         return;
       }
 
-      // No image bitmap on the clipboard — see if it's a link to
-      // one instead. This covers "Copy image address" and similar,
-      // which put text (the URL), not picture data, on the clipboard.
-      const hasText = await Clipboard.hasStringAsync();
-      const clipboardText = hasText ? (await Clipboard.getStringAsync()).trim() : "";
-      const looksLikeUrl = /^https?:\/\/\S+$/i.test(clipboardText);
+      const hasText =
+        await Clipboard.hasStringAsync();
+
+      const clipboardText =
+        hasText
+          ? (
+              await Clipboard.getStringAsync()
+            ).trim()
+          : "";
+
+      const looksLikeUrl =
+        /^https?:\/\/\S+$/i.test(
+          clipboardText,
+        );
 
       if (!looksLikeUrl) {
         Alert.alert(
           "Nothing to paste",
+
           "Your clipboard doesn't contain an image or a link to one right now.",
         );
+
         return;
       }
 
-      const nextZIndex = getNextZIndex(project.stickers);
+      const nextZIndex =
+        getNextZIndex(
+          project.stickers,
+        );
 
-      const sticker = await createStickerFromUrl(
-        clipboardText,
-        project.canvas.widthMm,
-        project.canvas.heightMm,
-        nextZIndex,
-        0,
-      );
+      const sticker =
+        await createStickerFromUrl(
+          clipboardText,
 
-      await commitNewStickers([sticker]);
+          project.canvas
+            .widthMm,
+
+          project.canvas
+            .heightMm,
+
+          nextZIndex,
+
+          project.stickers
+            .length,
+        );
+
+      await commitNewStickers([
+        sticker,
+      ]);
     } catch {
       Alert.alert(
         "Paste failed",
-        "StickerCut could not paste that. If you pasted a link, make sure it points directly to an image and that you're online.",
+
+        "StickerCut could not paste that image.",
       );
     } finally {
       setIsImporting(false);
     }
   }
 
-  if (loading || !project) {
+  // ============================================================
+  // LOADING
+  // ============================================================
+
+  if (
+    loading ||
+    !project
+  ) {
     return (
-      <SafeAreaView style={styles.safeArea}>
-        <View style={styles.loading}>
-          <Text style={styles.loadingText}>LOADING PROJECT...</Text>
+      <SafeAreaView
+        style={
+          styles.safeArea
+        }
+      >
+        <View
+          style={
+            styles.loading
+          }
+        >
+          <Text
+            style={
+              styles.loadingText
+            }
+          >
+            LOADING PROJECT...
+          </Text>
         </View>
       </SafeAreaView>
     );
   }
 
-  // Responsive canvas sizing: the page fits whatever space is actually
-  // available on this device/window, rather than a fixed constant —
-  // leaving room for the header (~60), canvas info bar (~36), tab row
-  // (~40) and tab panel (~140) that sit above/below the workspace.
-  const availableWidth = Math.max(120, windowWidth - 40);
-  const availableHeight = Math.max(120, windowHeight - 60 - 36 - 40 - 260 - 60 - 20);
+  // ============================================================
+  // DISPLAY GEOMETRY
+  // ============================================================
 
-  const editorScale = calculateEditorScale(
-    project.canvas.widthMm,
-    project.canvas.heightMm,
-    availableWidth,
-    availableHeight,
-  );
+  /**
+   * Leave enough room for the editor controls below the canvas.
+   */
+  const availableWidth =
+    Math.max(
+      120,
+      windowWidth - 40,
+    );
 
-  const canvasDisplayWidth = mmToDisplay(project.canvas.widthMm, editorScale);
-  const canvasDisplayHeight = mmToDisplay(project.canvas.heightMm, editorScale);
-  const transparent = project.canvas.background === "transparent";
-  const canvasColor = project.canvas.canvasColor ?? DEFAULT_CANVAS_COLOR;
+  const availableHeight =
+    Math.max(
+      120,
 
-  const sortedStickers = [...project.stickers].sort((a, b) => a.zIndex - b.zIndex);
-  const objectCount = project.stickers.length;
-  const activeSticker = project.stickers.find((sticker) => sticker.id === selectedStickerId) ?? null;
+      windowHeight -
+        60 -
+        36 -
+        40 -
+        260 -
+        60 -
+        20,
+    );
 
-  // --- Selection gesture architecture (CRITICAL FIX 1) ---------------
-  //
-  // The page needs a "tap empty canvas to deselect" gesture, and every
-  // sticker needs its own "tap to select" gesture. Those are two
-  // separate GestureDetector instances (the sticker's lives inside
-  // StickerItem, several layers below this page's GestureDetector), and
-  // react-native-gesture-handler does NOT automatically make a nested
-  // gesture block an ancestor's gesture just because their views
-  // overlap — a tap on a sticker was previously ALSO satisfying the
-  // page's Tap gesture, firing both onSelect(sticker) and
-  // setSelectedStickerId(null) for the same touch (in an unpredictable
-  // order), which is exactly the "selection doesn't stick" bug.
-  //
-  // The correct relation is `.requireExternalGestureToFail(...)`: the
-  // page's deselect gesture is told to wait for every sticker's own
-  // select gesture to fail (i.e. the touch wasn't a tap on that
-  // sticker) before it's allowed to activate. If a sticker's tap
-  // succeeds, the page's deselect gesture is guaranteed to fail instead
-  // — they can never both fire for the same touch. This requires both
-  // gesture objects to exist together in one scope, which is why the
-  // per-sticker "select" tap gesture is created HERE (not inside
-  // StickerItem) and passed down as a prop; StickerItem still owns its
-  // own move (Pan) gesture and races it against this one.
-  const stickerSelectGestureById = new Map(
-    sortedStickers.map((sticker) => [
-      sticker.id,
-      Gesture.Tap().onEnd(() => {
-        runOnJS(setSelectedStickerId)(sticker.id);
-      }),
-    ]),
-  );
+  const editorScale =
+    calculateEditorScale(
+      project.canvas
+        .widthMm,
 
-  const canvasDeselectGesture = Gesture.Tap()
-    .onEnd(() => {
-      runOnJS(setSelectedStickerId)(null);
-    })
-    .requireExternalGestureToFail(...stickerSelectGestureById.values());
+      project.canvas
+        .heightMm,
+
+      availableWidth,
+      availableHeight,
+    );
+
+  const canvasDisplayWidth =
+    mmToDisplay(
+      project.canvas
+        .widthMm,
+
+      editorScale,
+    );
+
+  const canvasDisplayHeight =
+    mmToDisplay(
+      project.canvas
+        .heightMm,
+
+      editorScale,
+    );
+
+  const transparent =
+    project.canvas
+      .background ===
+    "transparent";
+
+  const canvasColor =
+    project.canvas
+      .canvasColor ??
+    DEFAULT_CANVAS_COLOR;
+
+  const sortedStickers =
+    [
+      ...project.stickers,
+    ].sort(
+      (a, b) =>
+        a.zIndex -
+        b.zIndex,
+    );
+
+  const objectCount =
+    project.stickers.length;
+
+  const activeSticker =
+    project.stickers.find(
+      (sticker) =>
+        sticker.id ===
+        selectedStickerId,
+    ) ?? null;
+
+  // ============================================================
+  // RENDER
+  // ============================================================
 
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <View style={styles.container}>
-        <View style={styles.header}>
-          <TouchableOpacity style={styles.headerButton} onPress={() => router.back()}>
-            <Text style={styles.headerButtonText}>‹ Home</Text>
+    <SafeAreaView
+      style={
+        styles.safeArea
+      }
+    >
+      <View
+        style={
+          styles.container
+        }
+      >
+        {/* HEADER */}
+        <View
+          style={
+            styles.header
+          }
+        >
+          <TouchableOpacity
+            style={
+              styles.headerButton
+            }
+            onPress={() =>
+              router.back()
+            }
+          >
+            <Text
+              style={
+                styles.headerButtonText
+              }
+            >
+              ‹ Home
+            </Text>
           </TouchableOpacity>
 
-          <View style={styles.projectInfo}>
-            <Text style={styles.projectName} numberOfLines={1}>
+          <View
+            style={
+              styles.projectInfo
+            }
+          >
+            <Text
+              style={
+                styles.projectName
+              }
+              numberOfLines={1}
+            >
               {project.name}
             </Text>
-            <Text style={styles.projectMeta}>
-              {project.canvas.widthMm}×{project.canvas.heightMm}mm · {objectCount} obj
+
+            <Text
+              style={
+                styles.projectMeta
+              }
+            >
+              {
+                project.canvas
+                  .widthMm
+              }
+              ×
+              {
+                project.canvas
+                  .heightMm
+              }
+              mm ·{" "}
+              {
+                objectCount
+              }{" "}
+              obj
             </Text>
           </View>
 
-          <TouchableOpacity style={styles.saveButton} onPress={handleSave}>
-            <Text style={styles.saveText}>Save</Text>
+          <TouchableOpacity
+            style={
+              styles.saveButton
+            }
+            onPress={
+              handleSave
+            }
+          >
+            <Text
+              style={
+                styles.saveText
+              }
+            >
+              Save
+            </Text>
           </TouchableOpacity>
 
-          {objectCount > 0 && (
-            <TouchableOpacity style={styles.doneButton} onPress={handlePreview}>
-              <Text style={styles.doneButtonText}>Preview →</Text>
+          {objectCount >
+            0 && (
+            <TouchableOpacity
+              style={
+                styles.doneButton
+              }
+              onPress={
+                handlePreview
+              }
+            >
+              <Text
+                style={
+                  styles.doneButtonText
+                }
+              >
+                Preview →
+              </Text>
             </TouchableOpacity>
           )}
         </View>
 
-        <View style={styles.workspace}>
+        {/* WORKSPACE */}
+        <View
+          style={
+            styles.workspace
+          }
+        >
           <View>
-            <View style={styles.rulerGridRow}>
-              <View style={styles.cornerSpacer} />
+            {/* TOP RULER */}
+            <View
+              style={
+                styles.rulerGridRow
+              }
+            >
+              <View
+                style={
+                  styles.cornerSpacer
+                }
+              />
+
               <CanvasRuler
                 orientation="horizontal"
-                lengthMm={project.canvas.widthMm}
-                editorScale={editorScale}
-                onGuideDragStart={() => handleGuideDragStart("horizontal")}
-                onGuideDrag={(positionMm) => handleGuideDrag("horizontal", positionMm)}
-                onGuideDragEnd={(positionMm) => handleGuideDragEnd("horizontal", positionMm)}
+
+                lengthMm={
+                  project.canvas
+                    .widthMm
+                }
+
+                editorScale={
+                  editorScale
+                }
+
+                onGuideDragStart={() =>
+                  handleGuideDragStart(
+                    "horizontal",
+                  )
+                }
+
+                onGuideDrag={(
+                  positionMm,
+                ) =>
+                  handleGuideDrag(
+                    "horizontal",
+                    positionMm,
+                  )
+                }
+
+                onGuideDragEnd={(
+                  positionMm,
+                ) =>
+                  handleGuideDragEnd(
+                    "horizontal",
+                    positionMm,
+                  )
+                }
               />
             </View>
 
-            <View style={styles.pageRow}>
+            <View
+              style={
+                styles.pageRow
+              }
+            >
+              {/* LEFT RULER */}
               <CanvasRuler
                 orientation="vertical"
-                lengthMm={project.canvas.heightMm}
-                editorScale={editorScale}
-                onGuideDragStart={() => handleGuideDragStart("vertical")}
-                onGuideDrag={(positionMm) => handleGuideDrag("vertical", positionMm)}
-                onGuideDragEnd={(positionMm) => handleGuideDragEnd("vertical", positionMm)}
+
+                lengthMm={
+                  project.canvas
+                    .heightMm
+                }
+
+                editorScale={
+                  editorScale
+                }
+
+                onGuideDragStart={() =>
+                  handleGuideDragStart(
+                    "vertical",
+                  )
+                }
+
+                onGuideDrag={(
+                  positionMm,
+                ) =>
+                  handleGuideDrag(
+                    "vertical",
+                    positionMm,
+                  )
+                }
+
+                onGuideDragEnd={(
+                  positionMm,
+                ) =>
+                  handleGuideDragEnd(
+                    "vertical",
+                    positionMm,
+                  )
+                }
               />
 
-              {/* Tapping the page itself (not a sticker) clears the
-                  selection. canvasDeselectGesture is built above with
-                  requireExternalGestureToFail against every sticker's own
-                  select gesture, so a tap that lands on a sticker can
-                  never also deselect — see the comment above sortedStickers. */}
-              <GestureDetector gesture={canvasDeselectGesture}>
-                <View
-                  style={[
-                    styles.printCanvas,
-                    { width: canvasDisplayWidth, height: canvasDisplayHeight },
-                    transparent
-                      ? styles.transparentCanvas
-                      : [styles.whiteCanvas, { backgroundColor: canvasColor }],
-                  ]}
-                >
-                  {transparent && <Checkerboard />}
+              {/*
+                IMPORTANT MOVE FIX:
 
-                  {sortedStickers.map((sticker) => (
+                There is intentionally NO parent GestureDetector around
+                the canvas here.
+
+                StickerItem owns its own select/move gestures.
+
+                This prevents a canvas-level tap gesture from competing
+                with sticker movement.
+              */}
+              <View
+                style={[
+                  styles.printCanvas,
+
+                  {
+                    width:
+                      canvasDisplayWidth,
+
+                    height:
+                      canvasDisplayHeight,
+                  },
+
+                  transparent
+                    ? styles.transparentCanvas
+                    : [
+                        styles.whiteCanvas,
+
+                        {
+                          backgroundColor:
+                            canvasColor,
+                        },
+                      ],
+                ]}
+              >
+                {transparent && (
+                  <Checkerboard />
+                )}
+
+                {sortedStickers.map(
+                  (
+                    sticker,
+                  ) => (
                     <StickerItem
-                      key={sticker.id}
-                      sticker={sticker}
-                      editorScale={editorScale}
-                      selected={sticker.id === selectedStickerId}
-                      selectGesture={stickerSelectGestureById.get(sticker.id)!}
-                      onMove={handleStickerMove}
-                      onResize={handleStickerResize}
-                      onRotate={handleStickerRotate}
-                      interactionMode={activeTab === "cutLine" ? "cutLine" : "transform"}
-                    />
-                  ))}
-
-                  {objectCount === 0 && (
-                    <View style={styles.emptyCanvas}>
-                      <Text style={styles.emptyCanvasTitle}>ADD IMAGES TO BEGIN</Text>
-                      <Text style={styles.emptyCanvasText}>TAP + ADD OR PASTE</Text>
-                    </View>
-                  )}
-
-                  {(project.guides ?? []).map((guide) => (
-                    <GuideLine
-                      key={guide.id}
-                      guide={guide}
-                      pageLengthMm={
-                        guide.axis === "horizontal" ? project.canvas.widthMm : project.canvas.heightMm
+                      key={
+                        sticker.id
                       }
-                      editorScale={editorScale}
-                      onMove={handleMoveGuide}
-                      onDelete={handleDeleteGuide}
-                    />
-                  ))}
 
-                  {/* Live preview of a guide still being dragged out of a
-                      ruler (CRITICAL FIX 8) — not a real GuideLine (not
-                      draggable/deletable itself, and not part of
-                      project.guides), purely a visual follow-the-finger
-                      cue rendered from draftGuide's local state. */}
-                  {draftGuide && (
-                    <View
-                      pointerEvents="none"
-                      style={[
-                        draftGuide.axis === "horizontal"
-                          ? styles.draftGuideHorizontal
-                          : styles.draftGuideVertical,
-                        draftGuide.axis === "horizontal"
-                          ? { top: draftGuide.positionMm * editorScale }
-                          : { left: draftGuide.positionMm * editorScale },
-                      ]}
+                      sticker={
+                        sticker
+                      }
+
+                      editorScale={
+                        editorScale
+                      }
+
+                      selected={
+                        sticker.id ===
+                        selectedStickerId
+                      }
+
+                      onSelect={
+                        setSelectedStickerId
+                      }
+
+                      onMove={
+                        handleStickerMove
+                      }
+
+                      onResize={
+                        handleStickerResize
+                      }
+
+                      onRotate={
+                        handleStickerRotate
+                      }
+
+                      interactionMode={
+                        activeTab ===
+                        "cutLine"
+                          ? "cutLine"
+                          : "transform"
+                      }
                     />
-                  )}
-                </View>
-              </GestureDetector>
+                  ),
+                )}
+
+                {objectCount ===
+                  0 && (
+                  <View
+                    pointerEvents="none"
+                    style={
+                      styles.emptyCanvas
+                    }
+                  >
+                    <Text
+                      style={
+                        styles.emptyCanvasTitle
+                      }
+                    >
+                      ADD IMAGES TO BEGIN
+                    </Text>
+
+                    <Text
+                      style={
+                        styles.emptyCanvasText
+                      }
+                    >
+                      TAP + ADD OR PASTE
+                    </Text>
+                  </View>
+                )}
+
+                {(
+                  project.guides ??
+                  []
+                ).map(
+                  (guide) => (
+                    <GuideLine
+                      key={
+                        guide.id
+                      }
+
+                      guide={
+                        guide
+                      }
+
+                      pageLengthMm={
+                        guide.axis ===
+                        "horizontal"
+                          ? project.canvas
+                              .widthMm
+                          : project.canvas
+                              .heightMm
+                      }
+
+                      editorScale={
+                        editorScale
+                      }
+
+                      onMove={
+                        handleMoveGuide
+                      }
+
+                      onDelete={
+                        handleDeleteGuide
+                      }
+                    />
+                  ),
+                )}
+
+                {draftGuide && (
+                  <View
+                    pointerEvents="none"
+
+                    style={[
+                      draftGuide.axis ===
+                      "horizontal"
+                        ? styles.draftGuideHorizontal
+                        : styles.draftGuideVertical,
+
+                      draftGuide.axis ===
+                      "horizontal"
+                        ? {
+                            top:
+                              draftGuide.positionMm *
+                              editorScale,
+                          }
+                        : {
+                            left:
+                              draftGuide.positionMm *
+                              editorScale,
+                          },
+                    ]}
+                  />
+                )}
+              </View>
             </View>
           </View>
         </View>
 
-        <View style={styles.canvasInfoBar}>
-          <Text style={styles.canvasInfoText}>
-            {project.canvas.presetId.toUpperCase()} · {project.canvas.widthMm}×
-            {project.canvas.heightMm}mm
+        {/* CANVAS INFO */}
+        <View
+          style={
+            styles.canvasInfoBar
+          }
+        >
+          <Text
+            style={
+              styles.canvasInfoText
+            }
+          >
+            {project.canvas.presetId.toUpperCase()}{" "}
+            ·{" "}
+            {
+              project.canvas
+                .widthMm
+            }
+            ×
+            {
+              project.canvas
+                .heightMm
+            }
+            mm
           </Text>
-          <Text style={styles.canvasInfoBadge}>{transparent ? "TRANSPARENT" : "SOLID"}</Text>
+
+          <Text
+            style={
+              styles.canvasInfoBadge
+            }
+          >
+            {transparent
+              ? "TRANSPARENT"
+              : "SOLID"}
+          </Text>
         </View>
 
-        <View style={styles.tabRow}>
+        {/* TABS */}
+        <View
+          style={
+            styles.tabRow
+          }
+        >
           <TouchableOpacity
-            style={[styles.tabButton, activeTab === "canvas" && styles.tabButtonSelected]}
-            onPress={() => setActiveTab("canvas")}
+            style={[
+              styles.tabButton,
+
+              activeTab ===
+                "canvas" &&
+                styles.tabButtonSelected,
+            ]}
+
+            onPress={() =>
+              setActiveTab(
+                "canvas",
+              )
+            }
           >
             <Text
               style={[
                 styles.tabButtonText,
-                activeTab === "canvas" && styles.tabButtonTextSelected,
+
+                activeTab ===
+                  "canvas" &&
+                  styles.tabButtonTextSelected,
               ]}
             >
               CANVAS
@@ -1011,13 +2056,27 @@ export default function EditorScreen() {
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={[styles.tabButton, activeTab === "cutLine" && styles.tabButtonSelected]}
-            onPress={() => setActiveTab("cutLine")}
+            style={[
+              styles.tabButton,
+
+              activeTab ===
+                "cutLine" &&
+                styles.tabButtonSelected,
+            ]}
+
+            onPress={() =>
+              setActiveTab(
+                "cutLine",
+              )
+            }
           >
             <Text
               style={[
                 styles.tabButtonText,
-                activeTab === "cutLine" && styles.tabButtonTextSelected,
+
+                activeTab ===
+                  "cutLine" &&
+                  styles.tabButtonTextSelected,
               ]}
             >
               CUT LINE
@@ -1025,34 +2084,98 @@ export default function EditorScreen() {
           </TouchableOpacity>
         </View>
 
-        {activeTab === "canvas" ? (
-          <ScrollView style={styles.tabScroll} contentContainerStyle={styles.tabPanel}>
+        {/* CANVAS TAB */}
+        {activeTab ===
+        "canvas" ? (
+          <ScrollView
+            style={
+              styles.tabScroll
+            }
+
+            contentContainerStyle={
+              styles.tabPanel
+            }
+          >
             <TouchableOpacity
-              style={styles.addImageButton}
-              onPress={handleAddToCanvas}
-              disabled={isImporting}
+              style={
+                styles.addImageButton
+              }
+
+              onPress={
+                handleAddToCanvas
+              }
+
+              disabled={
+                isImporting
+              }
             >
-              <Text style={styles.addImageIcon}>＋</Text>
-              <Text style={styles.addImageText}>
-                {isImporting ? "Adding..." : "Add image"}
+              <Text
+                style={
+                  styles.addImageIcon
+                }
+              >
+                ＋
               </Text>
-              <Text style={styles.addImageSubtext}>· Upload or Paste</Text>
+
+              <Text
+                style={
+                  styles.addImageText
+                }
+              >
+                {isImporting
+                  ? "Adding..."
+                  : "Add image"}
+              </Text>
+
+              <Text
+                style={
+                  styles.addImageSubtext
+                }
+              >
+                · Upload or Paste
+              </Text>
             </TouchableOpacity>
 
+            {/* BACKGROUND */}
             <View>
-              <Text style={styles.sectionLabel}>CANVAS BACKGROUND</Text>
-              <View style={[styles.backgroundToggleRow, { marginTop: 8 }]}>
+              <Text
+                style={
+                  styles.sectionLabel
+                }
+              >
+                CANVAS BACKGROUND
+              </Text>
+
+              <View
+                style={[
+                  styles.backgroundToggleRow,
+
+                  {
+                    marginTop:
+                      8,
+                  },
+                ]}
+              >
                 <TouchableOpacity
                   style={[
                     styles.backgroundToggleOption,
-                    !transparent && styles.backgroundToggleOptionSelected,
+
+                    !transparent &&
+                      styles.backgroundToggleOptionSelected,
                   ]}
-                  onPress={() => handleSetBackground("white")}
+
+                  onPress={() =>
+                    handleSetBackground(
+                      "white",
+                    )
+                  }
                 >
                   <Text
                     style={[
                       styles.backgroundToggleText,
-                      !transparent && styles.backgroundToggleTextSelected,
+
+                      !transparent &&
+                        styles.backgroundToggleTextSelected,
                     ]}
                   >
                     Solid
@@ -1062,14 +2185,23 @@ export default function EditorScreen() {
                 <TouchableOpacity
                   style={[
                     styles.backgroundToggleOption,
-                    transparent && styles.backgroundToggleOptionSelected,
+
+                    transparent &&
+                      styles.backgroundToggleOptionSelected,
                   ]}
-                  onPress={() => handleSetBackground("transparent")}
+
+                  onPress={() =>
+                    handleSetBackground(
+                      "transparent",
+                    )
+                  }
                 >
                   <Text
                     style={[
                       styles.backgroundToggleText,
-                      transparent && styles.backgroundToggleTextSelected,
+
+                      transparent &&
+                        styles.backgroundToggleTextSelected,
                     ]}
                   >
                     Transparent
@@ -1078,133 +2210,383 @@ export default function EditorScreen() {
               </View>
             </View>
 
+            {/* COLOR */}
             {!transparent && (
               <View>
-                <Text style={styles.sectionLabel}>COLOR</Text>
-                <View style={[styles.colorSwatchRow, { marginTop: 8 }]}>
-                  {CANVAS_COLOR_SWATCHES.map((swatch) => (
-                    <TouchableOpacity
-                      key={swatch.id}
-                      onPress={() => handleSetCanvasColor(swatch.value)}
-                      style={[
-                        styles.colorSwatch,
-                        { backgroundColor: swatch.value },
-                        canvasColor === swatch.value && styles.colorSwatchSelected,
-                      ]}
-                    />
-                  ))}
+                <Text
+                  style={
+                    styles.sectionLabel
+                  }
+                >
+                  COLOR
+                </Text>
+
+                <View
+                  style={[
+                    styles.colorSwatchRow,
+
+                    {
+                      marginTop:
+                        8,
+                    },
+                  ]}
+                >
+                  {CANVAS_COLOR_SWATCHES.map(
+                    (
+                      swatch,
+                    ) => (
+                      <TouchableOpacity
+                        key={
+                          swatch.id
+                        }
+
+                        onPress={() =>
+                          handleSetCanvasColor(
+                            swatch.value,
+                          )
+                        }
+
+                        style={[
+                          styles.colorSwatch,
+
+                          {
+                            backgroundColor:
+                              swatch.value,
+                          },
+
+                          canvasColor ===
+                            swatch.value &&
+                            styles.colorSwatchSelected,
+                        ]}
+                      />
+                    ),
+                  )}
                 </View>
               </View>
             )}
 
-            {objectCount > 0 && (
+            {/* OBJECT LIST */}
+            {objectCount >
+              0 && (
               <View>
-                <View style={styles.objectsHeaderRow}>
-                  <Text style={styles.sectionLabel}>OBJECTS — {objectCount}</Text>
+                <View
+                  style={
+                    styles.objectsHeaderRow
+                  }
+                >
+                  <Text
+                    style={
+                      styles.sectionLabel
+                    }
+                  >
+                    OBJECTS —{" "}
+                    {
+                      objectCount
+                    }
+                  </Text>
                 </View>
 
-                <View style={{ gap: 8, marginTop: 8 }}>
-                  {[...sortedStickers].reverse().map((sticker) => (
-                    <TouchableOpacity
-                      key={sticker.id}
-                      style={[
-                        styles.objectRow,
-                        sticker.id === selectedStickerId && styles.objectRowSelected,
-                      ]}
-                      onPress={() => setSelectedStickerId(sticker.id)}
-                    >
-                      <Image
-                        source={{ uri: sticker.processedUri ?? sticker.sourceUri }}
-                        style={styles.objectThumb}
-                        contentFit="contain"
-                      />
+                <View
+                  style={{
+                    gap: 8,
+                    marginTop: 8,
+                  }}
+                >
+                  {[
+                    ...sortedStickers,
+                  ]
+                    .reverse()
+                    .map(
+                      (
+                        sticker,
+                      ) => (
+                        <TouchableOpacity
+                          key={
+                            sticker.id
+                          }
 
-                      <Text style={styles.objectRowLabel} numberOfLines={1}>
-                        {sticker.widthMm.toFixed(0)}×{sticker.heightMm.toFixed(0)}mm
-                      </Text>
+                          style={[
+                            styles.objectRow,
 
-                      <TouchableOpacity
-                        style={styles.objectRowIconButton}
-                        onPress={() => handleDuplicateSticker(sticker.id)}
-                      >
-                        <Text style={styles.objectRowIconText}>⧉</Text>
-                      </TouchableOpacity>
+                            sticker.id ===
+                              selectedStickerId &&
+                              styles.objectRowSelected,
+                          ]}
 
-                      <TouchableOpacity
-                        style={styles.objectRowIconButton}
-                        onPress={() => handleDeleteSticker(sticker.id)}
-                      >
-                        <Text style={styles.objectRowDeleteText}>×</Text>
-                      </TouchableOpacity>
-                    </TouchableOpacity>
-                  ))}
+                          onPress={() =>
+                            setSelectedStickerId(
+                              sticker.id,
+                            )
+                          }
+                        >
+                          <Image
+                            source={{
+                              uri:
+                                sticker.processedUri ??
+                                sticker.sourceUri,
+                            }}
+
+                            style={
+                              styles.objectThumb
+                            }
+
+                            contentFit="contain"
+                          />
+
+                          <Text
+                            style={
+                              styles.objectRowLabel
+                            }
+
+                            numberOfLines={
+                              1
+                            }
+                          >
+                            {sticker.widthMm.toFixed(
+                              0,
+                            )}
+                            ×
+                            {sticker.heightMm.toFixed(
+                              0,
+                            )}
+                            mm
+                          </Text>
+
+                          <TouchableOpacity
+                            style={
+                              styles.objectRowIconButton
+                            }
+
+                            onPress={() =>
+                              handleDuplicateSticker(
+                                sticker.id,
+                              )
+                            }
+                          >
+                            <Text
+                              style={
+                                styles.objectRowIconText
+                              }
+                            >
+                              ⧉
+                            </Text>
+                          </TouchableOpacity>
+
+                          <TouchableOpacity
+                            style={
+                              styles.objectRowIconButton
+                            }
+
+                            onPress={() =>
+                              handleDeleteSticker(
+                                sticker.id,
+                              )
+                            }
+                          >
+                            <Text
+                              style={
+                                styles.objectRowDeleteText
+                              }
+                            >
+                              ×
+                            </Text>
+                          </TouchableOpacity>
+                        </TouchableOpacity>
+                      ),
+                    )}
                 </View>
               </View>
             )}
           </ScrollView>
         ) : (
-          <ScrollView style={styles.tabScroll} contentContainerStyle={styles.tabPanel}>
+          /* CUT LINE TAB */
+          <ScrollView
+            style={
+              styles.tabScroll
+            }
+
+            contentContainerStyle={
+              styles.tabPanel
+            }
+          >
             {!selectedStickerId ? (
-              <View style={styles.cutLinePlaceholder}>
-                <Text style={styles.cutLinePlaceholderText}>
-                  Select a sticker to edit its cut line. Real cut-path generation (tracing,
-                  offsetting, exporting) isn't implemented yet — these controls only set a
-                  preview outline shown on the selected sticker for now.
+              <View
+                style={
+                  styles.cutLinePlaceholder
+                }
+              >
+                <Text
+                  style={
+                    styles.cutLinePlaceholderText
+                  }
+                >
+                  Select a sticker to edit its cut line. Real contour tracing and export are not implemented yet.
                 </Text>
               </View>
             ) : (
               <>
                 <View>
-                  <Text style={styles.sectionLabel}>CUT SHAPE</Text>
-                  <View style={[styles.cutShapeRow, { marginTop: 8 }]}>
-                    {CUT_SHAPE_OPTIONS.map((option) => {
-                      const selectedShape =
-                        activeSticker?.cutLine.shape ?? DEFAULT_CUT_LINE_SHAPE;
-                      const isSelected = selectedShape === option.id;
+                  <Text
+                    style={
+                      styles.sectionLabel
+                    }
+                  >
+                    CUT SHAPE
+                  </Text>
 
-                      return (
-                        <TouchableOpacity
-                          key={option.id}
-                          style={[styles.cutShapeOption, isSelected && styles.cutShapeOptionSelected]}
-                          onPress={() => handleSetCutLineShape(option.id)}
-                        >
-                          <Text
-                            style={[styles.cutShapeLabel, isSelected && styles.cutShapeLabelSelected]}
+                  <View
+                    style={[
+                      styles.cutShapeRow,
+
+                      {
+                        marginTop:
+                          8,
+                      },
+                    ]}
+                  >
+                    {CUT_SHAPE_OPTIONS.map(
+                      (
+                        option,
+                      ) => {
+                        const selectedShape =
+                          activeSticker
+                            ?.cutLine
+                            .shape ??
+                          DEFAULT_CUT_LINE_SHAPE;
+
+                        const isSelected =
+                          selectedShape ===
+                          option.id;
+
+                        return (
+                          <TouchableOpacity
+                            key={
+                              option.id
+                            }
+
+                            style={[
+                              styles.cutShapeOption,
+
+                              isSelected &&
+                                styles.cutShapeOptionSelected,
+                            ]}
+
+                            onPress={() =>
+                              handleSetCutLineShape(
+                                option.id,
+                              )
+                            }
                           >
-                            {option.label}
-                          </Text>
-                          <Text style={styles.cutShapeHint}>{option.hint}</Text>
-                        </TouchableOpacity>
-                      );
-                    })}
+                            <Text
+                              style={[
+                                styles.cutShapeLabel,
+
+                                isSelected &&
+                                  styles.cutShapeLabelSelected,
+                              ]}
+                            >
+                              {
+                                option.label
+                              }
+                            </Text>
+
+                            <Text
+                              style={
+                                styles.cutShapeHint
+                              }
+                            >
+                              {
+                                option.hint
+                              }
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      },
+                    )}
                   </View>
-                  {(activeSticker?.cutLine.shape ?? DEFAULT_CUT_LINE_SHAPE) === "tight" && (
-                    <Text style={[styles.cutLineNote, { marginTop: 6 }]}>
-                      "Tight" contour tracing isn't implemented yet — showing the Round preview
-                      instead.
+
+                  {(
+                    activeSticker
+                      ?.cutLine
+                      .shape ??
+                    DEFAULT_CUT_LINE_SHAPE
+                  ) ===
+                    "tight" && (
+                    <Text
+                      style={[
+                        styles.cutLineNote,
+
+                        {
+                          marginTop:
+                            6,
+                        },
+                      ]}
+                    >
+                      Tight contour tracing is not implemented yet.
                     </Text>
                   )}
                 </View>
 
                 <View>
-                  <Text style={styles.sectionLabel}>LINE COLOR</Text>
-                  <View style={[styles.colorSwatchRow, { marginTop: 8 }]}>
-                    {CUT_LINE_COLOR_SWATCHES.map((swatch) => {
-                      const selectedColor = activeSticker?.cutLine.color ?? DEFAULT_CUT_LINE_COLOR;
-                      const isSelected = selectedColor === swatch.value;
+                  <Text
+                    style={
+                      styles.sectionLabel
+                    }
+                  >
+                    LINE COLOR
+                  </Text>
 
-                      return (
-                        <TouchableOpacity
-                          key={swatch.id}
-                          onPress={() => handleSetCutLineColor(swatch.value)}
-                          style={[
-                            styles.colorSwatch,
-                            { backgroundColor: swatch.value },
-                            isSelected && styles.colorSwatchSelected,
-                          ]}
-                        />
-                      );
-                    })}
+                  <View
+                    style={[
+                      styles.colorSwatchRow,
+
+                      {
+                        marginTop:
+                          8,
+                      },
+                    ]}
+                  >
+                    {CUT_LINE_COLOR_SWATCHES.map(
+                      (
+                        swatch,
+                      ) => {
+                        const selectedColor =
+                          activeSticker
+                            ?.cutLine
+                            .color ??
+                          DEFAULT_CUT_LINE_COLOR;
+
+                        const isSelected =
+                          selectedColor ===
+                          swatch.value;
+
+                        return (
+                          <TouchableOpacity
+                            key={
+                              swatch.id
+                            }
+
+                            onPress={() =>
+                              handleSetCutLineColor(
+                                swatch.value,
+                              )
+                            }
+
+                            style={[
+                              styles.colorSwatch,
+
+                              {
+                                backgroundColor:
+                                  swatch.value,
+                              },
+
+                              isSelected &&
+                                styles.colorSwatchSelected,
+                            ]}
+                          />
+                        );
+                      },
+                    )}
                   </View>
                 </View>
               </>
@@ -1212,41 +2594,108 @@ export default function EditorScreen() {
           </ScrollView>
         )}
 
+        {/* SELECTED STICKER ACTIONS */}
         {selectedStickerId && (
-          <View style={styles.selectionActionsRow}>
+          <View
+            style={
+              styles.selectionActionsRow
+            }
+          >
             <TouchableOpacity
               style={[
                 styles.selectionActionButton,
-                !(activeSticker?.aspectLocked ?? true) && styles.selectionActionButtonActive,
+
+                !(
+                  activeSticker
+                    ?.aspectLocked ??
+                  true
+                ) &&
+                  styles.selectionActionButtonActive,
               ]}
-              onPress={handleToggleAspectLocked}
+
+              onPress={
+                handleToggleAspectLocked
+              }
             >
               <Text
                 style={[
                   styles.selectionActionText,
-                  !(activeSticker?.aspectLocked ?? true) && styles.selectionActionTextActive,
+
+                  !(
+                    activeSticker
+                      ?.aspectLocked ??
+                    true
+                  ) &&
+                    styles.selectionActionTextActive,
                 ]}
               >
-                Ratio: {(activeSticker?.aspectLocked ?? true) ? "Locked" : "Free"}
+                Ratio:{" "}
+                {(
+                  activeSticker
+                    ?.aspectLocked ??
+                  true
+                )
+                  ? "Locked"
+                  : "Free"}
               </Text>
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.selectionActionButton} onPress={handleRevertSelected}>
-              <Text style={styles.selectionActionText}>Revert</Text>
+            <TouchableOpacity
+              style={
+                styles.selectionActionButton
+              }
+
+              onPress={
+                handleRevertSelected
+              }
+            >
+              <Text
+                style={
+                  styles.selectionActionText
+                }
+              >
+                Revert
+              </Text>
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={styles.selectionActionButton}
-              onPress={() => handleDuplicateSticker(selectedStickerId)}
+              style={
+                styles.selectionActionButton
+              }
+
+              onPress={() =>
+                handleDuplicateSticker(
+                  selectedStickerId,
+                )
+              }
             >
-              <Text style={styles.selectionActionText}>Duplicate</Text>
+              <Text
+                style={
+                  styles.selectionActionText
+                }
+              >
+                Duplicate
+              </Text>
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={[styles.selectionActionButton, styles.selectionActionButtonDanger]}
-              onPress={() => handleDeleteSticker(selectedStickerId)}
+              style={[
+                styles.selectionActionButton,
+                styles.selectionActionButtonDanger,
+              ]}
+
+              onPress={() =>
+                handleDeleteSticker(
+                  selectedStickerId,
+                )
+              }
             >
-              <Text style={[styles.selectionActionText, styles.selectionActionTextDanger]}>
+              <Text
+                style={[
+                  styles.selectionActionText,
+                  styles.selectionActionTextDanger,
+                ]}
+              >
                 Delete
               </Text>
             </TouchableOpacity>
@@ -1261,30 +2710,80 @@ function Checkerboard() {
   const columns = 12;
   const rows = 16;
 
-  const cells = Array.from({ length: columns * rows });
+  const cells =
+    Array.from({
+      length:
+        columns *
+        rows,
+    });
 
   return (
-    <View pointerEvents="none" style={StyleSheet.absoluteFill}>
-      <View style={styles.checkerboard}>
-        {cells.map((_, index) => {
-          const row = Math.floor(index / columns);
-          const column = index % columns;
-          const dark = (row + column) % 2 === 0;
+    <View
+      pointerEvents="none"
+      style={
+        StyleSheet.absoluteFill
+      }
+    >
+      <View
+        style={
+          styles.checkerboard
+        }
+      >
+        {cells.map(
+          (
+            _,
+            index,
+          ) => {
+            const row =
+              Math.floor(
+                index /
+                  columns,
+              );
 
-          return (
-            <View
-              key={index}
-              style={[
-                styles.checkerCell,
-                {
-                  width: `${100 / columns}%`,
-                  height: `${100 / rows}%`,
-                  backgroundColor: dark ? Colors.checkerDark : Colors.checkerLight,
-                },
-              ]}
-            />
-          );
-        })}
+            const column =
+              index %
+              columns;
+
+            const dark =
+              (
+                row +
+                column
+              ) %
+                2 ===
+              0;
+
+            return (
+              <View
+                key={
+                  index
+                }
+
+                style={[
+                  styles.checkerCell,
+
+                  {
+                    width:
+                      `${
+                        100 /
+                        columns
+                      }%`,
+
+                    height:
+                      `${
+                        100 /
+                        rows
+                      }%`,
+
+                    backgroundColor:
+                      dark
+                        ? Colors.checkerDark
+                        : Colors.checkerLight,
+                  },
+                ]}
+              />
+            );
+          },
+        )}
       </View>
     </View>
   );
