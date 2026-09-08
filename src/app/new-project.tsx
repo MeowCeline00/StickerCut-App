@@ -20,6 +20,7 @@ import {
 } from '@/constants/canvas-presets';
 
 import { Colors } from '@/constants/colors';
+import { DEFAULT_THEME_ID, THEME_OPTIONS } from '@/constants/themes';
 
 import { styles } from '@/styles/new-project.styles';
 
@@ -27,6 +28,7 @@ import type {
   CanvasBackground,
   CanvasOrientation,
 } from '@/types/canvas';
+import type { ThemeId } from '@/types/project';
 
 const CUSTOM_PRESET_ID = 'custom';
 
@@ -52,6 +54,8 @@ export default function NewProjectScreen() {
     presetId,
     setPresetId,
   ] = useState('a4');
+
+  const [themeId, setThemeId] = useState<ThemeId>(DEFAULT_THEME_ID);
 
   const [
     orientation,
@@ -137,6 +141,8 @@ export default function NewProjectScreen() {
           orientation: 'portrait',
 
           background,
+
+          themeId,
         },
       });
 
@@ -175,6 +181,8 @@ export default function NewProjectScreen() {
         orientation,
 
         background,
+
+        themeId,
       },
     });
   }
@@ -220,6 +228,37 @@ export default function NewProjectScreen() {
             styles.scrollContent
           }
         >
+          <Text style={styles.sectionLabel}>INTERFACE THEME</Text>
+
+          <View style={styles.themeRow}>
+            {THEME_OPTIONS.map((theme) => {
+              const selected = theme.id === themeId;
+
+              return (
+                <TouchableOpacity
+                  key={theme.id}
+                  style={[
+                    styles.themeCard,
+                    selected && styles.themeCardSelected,
+                    !theme.available && styles.themeCardUnavailable,
+                  ]}
+                  disabled={!theme.available}
+                  onPress={() => setThemeId(theme.id)}
+                >
+                  <View
+                    style={[
+                      styles.themeSwatch,
+                      { backgroundColor: theme.previewBackground, borderColor: theme.previewAccent },
+                    ]}
+                  />
+                  <Text style={styles.themeLabel}>{theme.label.toUpperCase()}</Text>
+                  <Text style={styles.themeSublabel}>{theme.sublabel}</Text>
+                  {!theme.available && <Text style={styles.themeComingSoon}>COMING SOON</Text>}
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+
           <Text
             style={styles.sectionLabel}
           >

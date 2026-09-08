@@ -109,4 +109,37 @@ export const styles = StyleSheet.create({
     borderRadius: 4,
     overflow: "hidden",
   },
+
+  // The rotation handle: a small filled circle, visually distinct
+  // from the square corner-resize handles.
+  rotateHandleVisual: {
+    width: RESIZE_HANDLE_VISUAL_SIZE,
+    height: RESIZE_HANDLE_VISUAL_SIZE,
+    borderRadius: RESIZE_HANDLE_VISUAL_SIZE / 2,
+    borderWidth: 1.5,
+    borderColor: Colors.accentBright,
+    backgroundColor: Colors.surfaceBright,
+  },
+
+  // Cut Line tab preview: an honest APPROXIMATION of the future cut
+  // path (a colored outline around the sticker's bounding box), not a
+  // real traced contour — see the "tight" shape's comment in
+  // constants/cut-line.ts.
+  cutLinePreviewOverlay: {
+    position: "absolute",
+    top: -OVERLAY_INSET,
+    left: -OVERLAY_INSET,
+    right: -OVERLAY_INSET,
+    bottom: -OVERLAY_INSET,
+    borderWidth: 2,
+    borderStyle: "dashed",
+  },
+
+  cutLinePreviewRound: {
+    borderRadius: 16,
+  },
+
+  cutLinePreviewRect: {
+    borderRadius: 0,
+  },
 });

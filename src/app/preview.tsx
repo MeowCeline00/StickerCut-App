@@ -36,26 +36,29 @@ export default function PreviewScreen() {
             <Text
               style={styles.headerCode}
             >
-              PRODUCTION
+              PRODUCTION PREVIEW
             </Text>
 
             <Text style={styles.title}>
-              Print Preview
+              Artwork only
             </Text>
           </View>
         </View>
 
         <View style={styles.content}>
           <Text style={styles.label}>
-            PRODUCTION OUTPUT
+            PRODUCTION PREVIEW
           </Text>
 
           <Text
             style={styles.description}
           >
-            This screen will show only
-            printable artwork and cut
-            information.
+            Editor guides and controls
+            are excluded. This screen is
+            not wired up to a project
+            yet — actually rendering
+            your stickers here is a
+            separate, later pass.
           </Text>
 
           <View
@@ -68,7 +71,7 @@ export default function PreviewScreen() {
                 styles.previewText
               }
             >
-              PRINT PREVIEW
+              NOT YET IMPLEMENTED
             </Text>
           </View>
 

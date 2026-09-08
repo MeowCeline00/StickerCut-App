@@ -1,3 +1,4 @@
+import { DEFAULT_CUT_LINE_COLOR, DEFAULT_CUT_LINE_SHAPE } from "@/constants/cut-line";
 import type { StickerObject } from "@/types/sticker";
 import { createId } from "@/utils/ids";
 import { getImageDimensions } from "@/utils/imageDimensions";
@@ -59,12 +60,19 @@ function baseStickerFields(
     rotation: 0,
     zIndex,
     backgroundRemoved: false,
-    // Cut lines are generated in a later phase; every sticker still
-    // needs a value here since the type requires it.
-    cutLine: { enabled: false, offsetMm: 2 },
+    // Real cut-path generation is a later phase; every sticker still
+    // needs a value here since the type requires it. shape/color are
+    // used by the Cut Line tab's preview outline in the meantime.
+    cutLine: {
+      enabled: false,
+      offsetMm: 2,
+      shape: DEFAULT_CUT_LINE_SHAPE,
+      color: DEFAULT_CUT_LINE_COLOR,
+    },
     originalWidthPx: sourceWidthPx,
     originalHeightPx: sourceHeightPx,
     aspectRatio,
+    aspectLocked: true,
   };
 }
 

@@ -5,16 +5,35 @@ import * as Clipboard from "expo-clipboard";
 
 import { useEffect, useState } from "react";
 
-import { Alert, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { Image } from "expo-image";
+
+import {
+  Alert,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  useWindowDimensions,
+  View,
+} from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { runOnJS } from "react-native-reanimated";
 
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { BlueprintGrid } from "@/components/BlueprintGrid";
+import { CanvasRuler } from "@/components/editor/CanvasRuler";
+import { ExportSheet } from "@/components/editor/ExportSheet";
 import { StickerItem } from "@/components/editor/StickerItem";
 
+import { CANVAS_COLOR_SWATCHES, DEFAULT_CANVAS_COLOR } from "@/constants/canvas-colors";
 import { Colors } from "@/constants/colors";
+import {
+  CUT_LINE_COLOR_SWATCHES,
+  CUT_SHAPE_OPTIONS,
+  DEFAULT_CUT_LINE_COLOR,
+  DEFAULT_CUT_LINE_SHAPE,
+} from "@/constants/cut-line";
+import { DEFAULT_THEME_ID } from "@/constants/themes";
 
 import {
   createStickerFromClipboardImage,
@@ -31,8 +50,16 @@ import type { StickerProject } from "@/types/project";
 
 import { createId } from "@/utils/ids";
 import { getImageDimensions } from "@/utils/imageDimensions";
-import { getNextZIndex, MIN_STICKER_MM } from "@/utils/stickers";
+import { computeDefaultStickerSizeMm, getNextZIndex, MIN_STICKER_MM } from "@/utils/stickers";
 import { calculateEditorScale, mmToDisplay } from "@/utils/units";
+
+// Editor-only chrome (rulers, tab panel, header) never contributes to
+// the exported/printed artwork — only project.stickers + project.canvas
+// do. Kept here so it's obvious at a glance which parts of this screen
+// are "workspace decoration" vs. "real data."
+const DUPLICATE_OFFSET_MM = 6;
+
+type EditorTab = "canvas" | "cutLine";
 
 export default function EditorScreen() {
   const params = useLocalSearchParams<{
@@ -42,13 +69,18 @@ export default function EditorScreen() {
     heightMm?: string;
     background?: string;
     orientation?: string;
+    themeId?: string;
   }>();
+
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
 
   const [project, setProject] = useState<StickerProject | null>(null);
   const [loading, setLoading] = useState(true);
 
   const [selectedStickerId, setSelectedStickerId] = useState<string | null>(null);
   const [isImporting, setIsImporting] = useState(false);
+  const [activeTab, setActiveTab] = useState<EditorTab>("canvas");
+  const [exportSheetVisible, setExportSheetVisible] = useState(false);
 
   useEffect(() => {
     initialiseProject();
@@ -72,7 +104,7 @@ export default function EditorScreen() {
 
     const created: StickerProject = {
       id: createId("project"),
-      name: "Untitled Project",
+      name: "Untitled",
       createdAt: now,
       updatedAt: now,
       canvas: {
@@ -83,6 +115,10 @@ export default function EditorScreen() {
         background: params.background === "transparent" ? "transparent" : "white",
       },
       stickers: [],
+      themeId:
+        params.themeId === "dark" || params.themeId === "pink" || params.themeId === "light"
+          ? params.themeId
+          : DEFAULT_THEME_ID,
     };
 
     setProject(created);
@@ -181,6 +217,117 @@ export default function EditorScreen() {
     });
   }
 
+  /**
+   * Applies a finished rotation-handle gesture. Like onMove/onResize,
+   * this is called once (when the finger lifts) with a DEGREES DELTA,
+   * not an absolute angle — StickerItem.tsx computes the delta from
+   * the handle's own drag, this handler just adds it to the committed
+   * rotation and normalizes into [0, 360).
+   */
+  function handleStickerRotate(id: string, deltaDegrees: number) {
+    if (!project || deltaDegrees === 0) {
+      return;
+    }
+
+    const updatedProject: StickerProject = {
+      ...project,
+      stickers: project.stickers.map((sticker) =>
+        sticker.id === id
+          ? { ...sticker, rotation: ((sticker.rotation + deltaDegrees) % 360 + 360) % 360 }
+          : sticker,
+      ),
+    };
+
+    setProject(updatedProject);
+    saveProject(updatedProject).catch(() => {});
+  }
+
+  function handleToggleAspectLocked() {
+    if (!project || !selectedStickerId) {
+      return;
+    }
+
+    const updatedProject: StickerProject = {
+      ...project,
+      stickers: project.stickers.map((sticker) =>
+        sticker.id === selectedStickerId
+          ? { ...sticker, aspectLocked: !(sticker.aspectLocked ?? true) }
+          : sticker,
+      ),
+    };
+
+    setProject(updatedProject);
+    saveProject(updatedProject).catch(() => {});
+  }
+
+  /**
+   * Resets the selected sticker's size (back to the default computed
+   * from its original imported pixel dimensions) and rotation to 0 —
+   * an undo for "I've messed with this sticker's transform and want
+   * to start over," without removing and re-importing it. Position
+   * is left alone since that's rarely what someone means by "revert."
+   */
+  function handleRevertSelected() {
+    if (!project || !selectedStickerId) {
+      return;
+    }
+
+    const updatedProject: StickerProject = {
+      ...project,
+      stickers: project.stickers.map((sticker) => {
+        if (sticker.id !== selectedStickerId) {
+          return sticker;
+        }
+
+        const { widthMm, heightMm } = computeDefaultStickerSizeMm(
+          sticker.originalWidthPx ?? sticker.widthMm,
+          sticker.originalHeightPx ?? sticker.heightMm,
+        );
+
+        return { ...sticker, widthMm, heightMm, rotation: 0, aspectLocked: true };
+      }),
+    };
+
+    setProject(updatedProject);
+    saveProject(updatedProject).catch(() => {});
+  }
+
+  function handleSetCutLineShape(shape: (typeof CUT_SHAPE_OPTIONS)[number]["id"]) {
+    if (!project || !selectedStickerId) {
+      return;
+    }
+
+    const updatedProject: StickerProject = {
+      ...project,
+      stickers: project.stickers.map((sticker) =>
+        sticker.id === selectedStickerId
+          ? { ...sticker, cutLine: { ...sticker.cutLine, shape } }
+          : sticker,
+      ),
+    };
+
+    setProject(updatedProject);
+    saveProject(updatedProject).catch(() => {});
+  }
+
+  function handleSetCutLineColor(color: string) {
+    if (!project || !selectedStickerId) {
+      return;
+    }
+
+    const updatedProject: StickerProject = {
+      ...project,
+      stickers: project.stickers.map((sticker) =>
+        sticker.id === selectedStickerId
+          ? { ...sticker, cutLine: { ...sticker.cutLine, color } }
+          : sticker,
+      ),
+    };
+
+    setProject(updatedProject);
+    saveProject(updatedProject).catch(() => {});
+  }
+
   // Shared by every import source: merge new stickers into the
   // project, select the last one added, and autosave so imported
   // artwork survives even if the user backs out without tapping
@@ -207,8 +354,81 @@ export default function EditorScreen() {
     }
   }
 
+  function handleDuplicateSelected() {
+    if (!project || !selectedStickerId) {
+      return;
+    }
+
+    const source = project.stickers.find((sticker) => sticker.id === selectedStickerId);
+    if (!source) {
+      return;
+    }
+
+    const duplicate: StickerObject = {
+      ...source,
+      id: createId("sticker"),
+      xMm: Math.min(
+        source.xMm + DUPLICATE_OFFSET_MM,
+        Math.max(0, project.canvas.widthMm - source.widthMm),
+      ),
+      yMm: Math.min(
+        source.yMm + DUPLICATE_OFFSET_MM,
+        Math.max(0, project.canvas.heightMm - source.heightMm),
+      ),
+      zIndex: getNextZIndex(project.stickers),
+    };
+
+    commitNewStickers([duplicate]);
+  }
+
+  function handleDeleteSelected() {
+    if (!project || !selectedStickerId) {
+      return;
+    }
+
+    const updatedProject: StickerProject = {
+      ...project,
+      stickers: project.stickers.filter((sticker) => sticker.id !== selectedStickerId),
+    };
+
+    setSelectedStickerId(null);
+    setProject(updatedProject);
+
+    saveProject(updatedProject).catch(() => {
+      // Manual Save is still available if this silent autosave fails.
+    });
+  }
+
+  function handleSetBackground(background: "white" | "transparent") {
+    if (!project) {
+      return;
+    }
+
+    const updatedProject: StickerProject = {
+      ...project,
+      canvas: { ...project.canvas, background },
+    };
+
+    setProject(updatedProject);
+    saveProject(updatedProject).catch(() => {});
+  }
+
+  function handleSetCanvasColor(color: string) {
+    if (!project) {
+      return;
+    }
+
+    const updatedProject: StickerProject = {
+      ...project,
+      canvas: { ...project.canvas, canvasColor: color },
+    };
+
+    setProject(updatedProject);
+    saveProject(updatedProject).catch(() => {});
+  }
+
   /**
-   * "+ ADD" opens this chooser instead of jumping straight to
+   * "+ Add image" opens this chooser instead of jumping straight to
    * Photos, matching the web reference's Add to Canvas menu
    * (Photos / Files / Paste). Kept as a plain Alert action sheet —
    * no new UI library — since three text options don't need one.
@@ -342,12 +562,6 @@ export default function EditorScreen() {
    * genuinely different clipboard contents, so they're checked in
    * order: real image bytes first, then fall back to treating the
    * clipboard as a link.
-   *
-   * expo-clipboard's image support works in Expo Go on Android/iOS
-   * (confirmed via the versioned SDK docs — no dev build required).
-   * On iOS 16+, a denied paste permission also returns null from
-   * getImageAsync, which is indistinguishable from "no image on the
-   * clipboard" — the message below covers both cases honestly.
    */
   async function handlePasteFromClipboard() {
     if (!project || isImporting) {
@@ -434,160 +648,397 @@ export default function EditorScreen() {
     );
   }
 
-  const maxCanvasWidth = 285;
-  const maxCanvasHeight = 410;
+  // Responsive canvas sizing: the page fits whatever space is actually
+  // available on this device/window, rather than a fixed constant —
+  // leaving room for the header (~60), canvas info bar (~36), tab row
+  // (~40) and tab panel (~140) that sit above/below the workspace.
+  const availableWidth = Math.max(120, windowWidth - 40);
+  const availableHeight = Math.max(120, windowHeight - 60 - 36 - 40 - 260 - 60 - 20);
 
   const editorScale = calculateEditorScale(
     project.canvas.widthMm,
     project.canvas.heightMm,
-    maxCanvasWidth,
-    maxCanvasHeight,
+    availableWidth,
+    availableHeight,
   );
 
   const canvasDisplayWidth = mmToDisplay(project.canvas.widthMm, editorScale);
   const canvasDisplayHeight = mmToDisplay(project.canvas.heightMm, editorScale);
   const transparent = project.canvas.background === "transparent";
+  const canvasColor = project.canvas.canvasColor ?? DEFAULT_CANVAS_COLOR;
 
   const sortedStickers = [...project.stickers].sort((a, b) => a.zIndex - b.zIndex);
+  const objectCount = project.stickers.length;
+  const activeSticker = project.stickers.find((sticker) => sticker.id === selectedStickerId) ?? null;
 
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.container}>
         <View style={styles.header}>
           <TouchableOpacity style={styles.headerButton} onPress={() => router.back()}>
-            <Text style={styles.headerButtonText}>‹</Text>
+            <Text style={styles.headerButtonText}>‹ Home</Text>
           </TouchableOpacity>
 
           <View style={styles.projectInfo}>
-            <Text style={styles.projectLabel}>PROJECT</Text>
             <Text style={styles.projectName} numberOfLines={1}>
-              {project.name.toUpperCase()}
+              {project.name}
+            </Text>
+            <Text style={styles.projectMeta}>
+              {project.canvas.widthMm}×{project.canvas.heightMm}mm · {objectCount} obj
             </Text>
           </View>
 
           <TouchableOpacity style={styles.saveButton} onPress={handleSave}>
-            <Text style={styles.saveText}>SAVE</Text>
+            <Text style={styles.saveText}>Save</Text>
           </TouchableOpacity>
+
+          {objectCount > 0 && (
+            <TouchableOpacity style={styles.doneButton} onPress={() => setExportSheetVisible(true)}>
+              <Text style={styles.doneButtonText}>Done →</Text>
+            </TouchableOpacity>
+          )}
         </View>
 
         <View style={styles.workspace}>
-          <BlueprintGrid />
+          <View>
+            <View style={styles.rulerGridRow}>
+              <View style={styles.cornerSpacer} />
+              <CanvasRuler
+                orientation="horizontal"
+                lengthMm={project.canvas.widthMm}
+                editorScale={editorScale}
+              />
+            </View>
 
-          <View style={styles.topRuler}>
-            <Text style={styles.rulerText}>0</Text>
-            <Text style={styles.rulerText}>50</Text>
-            <Text style={styles.rulerText}>100</Text>
-            <Text style={styles.rulerText}>150</Text>
-            <Text style={styles.rulerText}>200</Text>
-            <Text style={styles.rulerUnit}>mm</Text>
+            <View style={styles.pageRow}>
+              <CanvasRuler
+                orientation="vertical"
+                lengthMm={project.canvas.heightMm}
+                editorScale={editorScale}
+              />
+
+              {/* Tapping the page itself (not a sticker) clears the
+                  selection. This uses the same react-native-gesture-handler
+                  Tap gesture as every sticker (see StickerItem.tsx) rather
+                  than a plain Pressable — mixing React Native's built-in
+                  Touchable/Pressable with gesture-handler in the same
+                  touch area is a known source of gesture conflicts. */}
+              <GestureDetector
+                gesture={Gesture.Tap().onEnd(() => runOnJS(setSelectedStickerId)(null))}
+              >
+                <View
+                  style={[
+                    styles.printCanvas,
+                    { width: canvasDisplayWidth, height: canvasDisplayHeight },
+                    transparent
+                      ? styles.transparentCanvas
+                      : [styles.whiteCanvas, { backgroundColor: canvasColor }],
+                  ]}
+                >
+                  {transparent && <Checkerboard />}
+
+                  {sortedStickers.map((sticker) => (
+                    <StickerItem
+                      key={sticker.id}
+                      sticker={sticker}
+                      editorScale={editorScale}
+                      selected={sticker.id === selectedStickerId}
+                      onSelect={setSelectedStickerId}
+                      onMove={handleStickerMove}
+                      onResize={handleStickerResize}
+                      onRotate={handleStickerRotate}
+                      interactionMode={activeTab === "cutLine" ? "cutLine" : "transform"}
+                    />
+                  ))}
+
+                  {objectCount === 0 && (
+                    <View style={styles.emptyCanvas}>
+                      <Text style={styles.emptyCanvasTitle}>ADD IMAGES TO BEGIN</Text>
+                      <Text style={styles.emptyCanvasText}>TAP + ADD OR PASTE</Text>
+                    </View>
+                  )}
+                </View>
+              </GestureDetector>
+            </View>
           </View>
+        </View>
 
-          <View style={styles.workspaceCenter}>
-            {/* Tapping the canvas itself (not a sticker) clears the
-                selection. This uses the same react-native-gesture-handler
-                Tap gesture as every sticker (see StickerItem.tsx) rather
-                than a plain Pressable — mixing React Native's built-in
-                Touchable/Pressable with gesture-handler in the same
-                touch area is a known source of exactly the bug this
-                fixed: a sticker's own drag (a continuous Pan gesture)
-                was getting intercepted by this Pressable ancestor's
-                older responder system before it could fully take over,
-                even though quick taps still got through fine. */}
-            <GestureDetector gesture={Gesture.Tap().onEnd(() => runOnJS(setSelectedStickerId)(null))}>
-              <View
+        <View style={styles.canvasInfoBar}>
+          <Text style={styles.canvasInfoText}>
+            {project.canvas.presetId.toUpperCase()} · {project.canvas.widthMm}×
+            {project.canvas.heightMm}mm
+          </Text>
+          <Text style={styles.canvasInfoBadge}>{transparent ? "TRANSPARENT" : "SOLID"}</Text>
+        </View>
+
+        <View style={styles.tabRow}>
+          <TouchableOpacity
+            style={[styles.tabButton, activeTab === "canvas" && styles.tabButtonSelected]}
+            onPress={() => setActiveTab("canvas")}
+          >
+            <Text
+              style={[
+                styles.tabButtonText,
+                activeTab === "canvas" && styles.tabButtonTextSelected,
+              ]}
+            >
+              CANVAS
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.tabButton, activeTab === "cutLine" && styles.tabButtonSelected]}
+            onPress={() => setActiveTab("cutLine")}
+          >
+            <Text
+              style={[
+                styles.tabButtonText,
+                activeTab === "cutLine" && styles.tabButtonTextSelected,
+              ]}
+            >
+              CUT LINE
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        {activeTab === "canvas" ? (
+          <ScrollView style={styles.tabScroll} contentContainerStyle={styles.tabPanel}>
+            <TouchableOpacity
+              style={styles.addImageButton}
+              onPress={handleAddToCanvas}
+              disabled={isImporting}
+            >
+              <Text style={styles.addImageIcon}>＋</Text>
+              <Text style={styles.addImageText}>
+                {isImporting ? "Adding..." : "Add image"}
+              </Text>
+              <Text style={styles.addImageSubtext}>· Upload or Paste</Text>
+            </TouchableOpacity>
+
+            <View>
+              <Text style={styles.sectionLabel}>CANVAS BACKGROUND</Text>
+              <View style={[styles.backgroundToggleRow, { marginTop: 8 }]}>
+                <TouchableOpacity
+                  style={[
+                    styles.backgroundToggleOption,
+                    !transparent && styles.backgroundToggleOptionSelected,
+                  ]}
+                  onPress={() => handleSetBackground("white")}
+                >
+                  <Text
+                    style={[
+                      styles.backgroundToggleText,
+                      !transparent && styles.backgroundToggleTextSelected,
+                    ]}
+                  >
+                    Solid
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[
+                    styles.backgroundToggleOption,
+                    transparent && styles.backgroundToggleOptionSelected,
+                  ]}
+                  onPress={() => handleSetBackground("transparent")}
+                >
+                  <Text
+                    style={[
+                      styles.backgroundToggleText,
+                      transparent && styles.backgroundToggleTextSelected,
+                    ]}
+                  >
+                    Transparent
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            {!transparent && (
+              <View>
+                <Text style={styles.sectionLabel}>COLOR</Text>
+                <View style={[styles.colorSwatchRow, { marginTop: 8 }]}>
+                  {CANVAS_COLOR_SWATCHES.map((swatch) => (
+                    <TouchableOpacity
+                      key={swatch.id}
+                      onPress={() => handleSetCanvasColor(swatch.value)}
+                      style={[
+                        styles.colorSwatch,
+                        { backgroundColor: swatch.value },
+                        canvasColor === swatch.value && styles.colorSwatchSelected,
+                      ]}
+                    />
+                  ))}
+                </View>
+              </View>
+            )}
+
+            {objectCount > 0 && (
+              <View>
+                <View style={styles.objectsHeaderRow}>
+                  <Text style={styles.sectionLabel}>OBJECTS — {objectCount}</Text>
+                </View>
+
+                <View style={{ gap: 8, marginTop: 8 }}>
+                  {[...sortedStickers].reverse().map((sticker) => (
+                    <TouchableOpacity
+                      key={sticker.id}
+                      style={[
+                        styles.objectRow,
+                        sticker.id === selectedStickerId && styles.objectRowSelected,
+                      ]}
+                      onPress={() => setSelectedStickerId(sticker.id)}
+                    >
+                      <Image
+                        source={{ uri: sticker.processedUri ?? sticker.sourceUri }}
+                        style={styles.objectThumb}
+                        contentFit="contain"
+                      />
+
+                      <Text style={styles.objectRowLabel} numberOfLines={1}>
+                        {sticker.widthMm.toFixed(0)}×{sticker.heightMm.toFixed(0)}mm
+                      </Text>
+
+                      <TouchableOpacity
+                        style={styles.objectRowIconButton}
+                        onPress={() => {
+                          setSelectedStickerId(sticker.id);
+                          handleDuplicateSelected();
+                        }}
+                      >
+                        <Text style={styles.objectRowIconText}>⧉</Text>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        style={styles.objectRowIconButton}
+                        onPress={() => {
+                          setSelectedStickerId(sticker.id);
+                          handleDeleteSelected();
+                        }}
+                      >
+                        <Text style={styles.objectRowDeleteText}>×</Text>
+                      </TouchableOpacity>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+            )}
+          </ScrollView>
+        ) : (
+          <ScrollView style={styles.tabScroll} contentContainerStyle={styles.tabPanel}>
+            {!selectedStickerId ? (
+              <View style={styles.cutLinePlaceholder}>
+                <Text style={styles.cutLinePlaceholderText}>
+                  Select a sticker to edit its cut line. Real cut-path generation (tracing,
+                  offsetting, exporting) isn't implemented yet — these controls only set a
+                  preview outline shown on the selected sticker for now.
+                </Text>
+              </View>
+            ) : (
+              <>
+                <View>
+                  <Text style={styles.sectionLabel}>CUT SHAPE</Text>
+                  <View style={[styles.cutShapeRow, { marginTop: 8 }]}>
+                    {CUT_SHAPE_OPTIONS.map((option) => {
+                      const selectedShape =
+                        activeSticker?.cutLine.shape ?? DEFAULT_CUT_LINE_SHAPE;
+                      const isSelected = selectedShape === option.id;
+
+                      return (
+                        <TouchableOpacity
+                          key={option.id}
+                          style={[styles.cutShapeOption, isSelected && styles.cutShapeOptionSelected]}
+                          onPress={() => handleSetCutLineShape(option.id)}
+                        >
+                          <Text
+                            style={[styles.cutShapeLabel, isSelected && styles.cutShapeLabelSelected]}
+                          >
+                            {option.label}
+                          </Text>
+                          <Text style={styles.cutShapeHint}>{option.hint}</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                  {(activeSticker?.cutLine.shape ?? DEFAULT_CUT_LINE_SHAPE) === "tight" && (
+                    <Text style={[styles.cutLineNote, { marginTop: 6 }]}>
+                      "Tight" contour tracing isn't implemented yet — showing the Round preview
+                      instead.
+                    </Text>
+                  )}
+                </View>
+
+                <View>
+                  <Text style={styles.sectionLabel}>LINE COLOR</Text>
+                  <View style={[styles.colorSwatchRow, { marginTop: 8 }]}>
+                    {CUT_LINE_COLOR_SWATCHES.map((swatch) => {
+                      const selectedColor = activeSticker?.cutLine.color ?? DEFAULT_CUT_LINE_COLOR;
+                      const isSelected = selectedColor === swatch.value;
+
+                      return (
+                        <TouchableOpacity
+                          key={swatch.id}
+                          onPress={() => handleSetCutLineColor(swatch.value)}
+                          style={[
+                            styles.colorSwatch,
+                            { backgroundColor: swatch.value },
+                            isSelected && styles.colorSwatchSelected,
+                          ]}
+                        />
+                      );
+                    })}
+                  </View>
+                </View>
+              </>
+            )}
+          </ScrollView>
+        )}
+
+        {selectedStickerId && (
+          <View style={styles.selectionActionsRow}>
+            <TouchableOpacity
+              style={[
+                styles.selectionActionButton,
+                !(activeSticker?.aspectLocked ?? true) && styles.selectionActionButtonActive,
+              ]}
+              onPress={handleToggleAspectLocked}
+            >
+              <Text
                 style={[
-                  styles.printCanvas,
-                  { width: canvasDisplayWidth, height: canvasDisplayHeight },
-                  transparent ? styles.transparentCanvas : styles.whiteCanvas,
+                  styles.selectionActionText,
+                  !(activeSticker?.aspectLocked ?? true) && styles.selectionActionTextActive,
                 ]}
               >
-                {transparent && <Checkerboard />}
-
-                {sortedStickers.map((sticker) => (
-                  <StickerItem
-                    key={sticker.id}
-                    sticker={sticker}
-                    editorScale={editorScale}
-                    selected={sticker.id === selectedStickerId}
-                    onSelect={setSelectedStickerId}
-                    onMove={handleStickerMove}
-                    onResize={handleStickerResize}
-                  />
-                ))}
-
-                {project.stickers.length === 0 && (
-                  <View style={styles.emptyCanvas}>
-                    <Text style={styles.emptyCanvasTitle}>EMPTY CANVAS</Text>
-                    <Text style={styles.emptyCanvasText}>Tap + ADD to place artwork</Text>
-                  </View>
-                )}
-              </View>
-            </GestureDetector>
-          </View>
-
-          <View style={styles.canvasReadout}>
-            <View>
-              <Text style={styles.readoutLabel}>CANVAS</Text>
-              <Text style={styles.readoutValue}>
-                {project.canvas.widthMm}
-                {" × "}
-                {project.canvas.heightMm} mm
+                Ratio: {(activeSticker?.aspectLocked ?? true) ? "Locked" : "Free"}
               </Text>
-            </View>
+            </TouchableOpacity>
 
-            <View style={styles.scaleBox}>
-              <Text style={styles.scaleText}>FIT</Text>
-            </View>
+            <TouchableOpacity style={styles.selectionActionButton} onPress={handleRevertSelected}>
+              <Text style={styles.selectionActionText}>Revert</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.selectionActionButton} onPress={handleDuplicateSelected}>
+              <Text style={styles.selectionActionText}>Duplicate</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.selectionActionButton, styles.selectionActionButtonDanger]}
+              onPress={handleDeleteSelected}
+            >
+              <Text style={[styles.selectionActionText, styles.selectionActionTextDanger]}>
+                Delete
+              </Text>
+            </TouchableOpacity>
           </View>
-        </View>
-
-        <View style={styles.quickActions}>
-          <TouchableOpacity
-            style={styles.addButton}
-            onPress={handleAddToCanvas}
-            disabled={isImporting}
-          >
-            <Text style={styles.addIcon}>＋</Text>
-            <Text style={styles.addText}>{isImporting ? "..." : "ADD"}</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity style={styles.quickButton}>
-            <Text style={styles.quickIcon}>⌗</Text>
-            <Text style={styles.quickText}>ARRANGE</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity style={styles.quickButton} onPress={() => router.push("/preview")}>
-            <Text style={styles.quickIcon}>◉</Text>
-            <Text style={styles.quickText}>PREVIEW</Text>
-          </TouchableOpacity>
-        </View>
-
-        <View style={styles.toolbar}>
-          <ToolbarButton icon="▱" label="CANVAS" selected />
-          <ToolbarButton icon="✂" label="CUT" />
-          <ToolbarButton icon="↔" label="SIZE" />
-          <ToolbarButton icon="▣" label="OBJECTS" />
-          <ToolbarButton icon="⇧" label="PRINT" />
-        </View>
+        )}
       </View>
-    </SafeAreaView>
-  );
-}
 
-function ToolbarButton({
-  icon,
-  label,
-  selected = false,
-}: {
-  icon: string;
-  label: string;
-  selected?: boolean;
-}) {
-  return (
-    <TouchableOpacity style={styles.toolbarButton}>
-      <Text style={[styles.toolbarIcon, selected && styles.toolbarIconSelected]}>{icon}</Text>
-      <Text style={[styles.toolbarText, selected && styles.toolbarTextSelected]}>{label}</Text>
-    </TouchableOpacity>
+      <ExportSheet
+        visible={exportSheetVisible}
+        project={project}
+        onClose={() => setExportSheetVisible(false)}
+      />
+    </SafeAreaView>
   );
 }
 

@@ -15,7 +15,7 @@ export default function RootLayout() {
     // drag-to-resize stickers depend on this being here.
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
-        <StatusBar style="light" />
+        <StatusBar style="dark" />
 
         <Stack
           screenOptions={{
@@ -26,7 +26,7 @@ export default function RootLayout() {
 
             contentStyle: {
               backgroundColor:
-                '#050B14',
+                '#E8F0F8',
             },
           }}
         />

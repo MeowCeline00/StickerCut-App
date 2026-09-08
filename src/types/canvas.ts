@@ -19,4 +19,9 @@ export interface CanvasSettings {
   orientation: CanvasOrientation;
 
   background: CanvasBackground;
+
+  // Fill color used when background === "solid"/"white" and the user has
+  // picked a swatch other than plain white. Optional/additive so existing
+  // saved projects (with no color chosen) keep working unchanged.
+  canvasColor?: string;
 }

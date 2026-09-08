@@ -92,6 +92,55 @@ export const styles =
       marginTop: 10,
     },
 
+    themeRow: {
+      flexDirection: 'row',
+      gap: 10,
+      marginBottom: 20,
+    },
+
+    themeCard: {
+      flex: 1,
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: Colors.border,
+      alignItems: 'center',
+      paddingVertical: 12,
+      gap: 6,
+    },
+
+    themeCardSelected: {
+      borderColor: Colors.accent,
+      backgroundColor: 'rgba(0,168,255,0.08)',
+    },
+
+    themeCardUnavailable: {
+      opacity: 0.45,
+    },
+
+    themeSwatch: {
+      width: 34,
+      height: 34,
+      borderRadius: 17,
+      borderWidth: 2,
+    },
+
+    themeLabel: {
+      color: Colors.text,
+      fontSize: 12,
+      fontWeight: '700',
+    },
+
+    themeSublabel: {
+      color: Colors.textMuted,
+      fontSize: 9,
+    },
+
+    themeComingSoon: {
+      color: Colors.textMuted,
+      fontSize: 8,
+      letterSpacing: 0.5,
+    },
+
     presetGrid: {
       flexDirection: 'row',
 
