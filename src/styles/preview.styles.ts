@@ -86,8 +86,16 @@ export const styles = StyleSheet.create({
     backgroundColor: Colors.checkerLight,
   },
 
-  previewSticker: {
+  // Rotating wrapper shared by the artwork Image and its (optional)
+  // cut-line overlay, so both rotate together — see PreviewSticker in
+  // preview.tsx.
+  previewStickerWrapper: {
     position: 'absolute',
+  },
+
+  previewStickerImage: {
+    width: '100%',
+    height: '100%',
   },
 
   previewCheckerboard: {

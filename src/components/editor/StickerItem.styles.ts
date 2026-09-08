@@ -6,6 +6,15 @@ const OVERLAY_INSET = 8;
 const RESIZE_HANDLE_VISUAL_SIZE = 12;
 const RESIZE_TOUCH_TARGET_SIZE = 40;
 
+// Delete (top-right) / rotate (bottom-right) auxiliary controls.
+// Visible size ~22-26px, touch target ~40-44px per spec — these values
+// must match the same-named constants in StickerItem.tsx, which uses
+// them (plus AUX_CONTROL_OFFSET) to size the interaction root and
+// position each control's touch target so it clears the resize
+// handles at the same corner.
+const AUX_CONTROL_VISIBLE_SIZE = 24;
+const AUX_CONTROL_TOUCH_SIZE = 42;
+
 export const styles = StyleSheet.create({
   // Purely a layout container: exists to give the resize handles'
   // touch targets real native bounds to be touched within (see the
@@ -108,36 +117,59 @@ export const styles = StyleSheet.create({
     overflow: "hidden",
   },
 
-  // The rotation handle: a small filled circle, visually distinct
-  // from the square corner-resize handles.
+  // Shared touch-target wrapper for the delete (×) and rotate (↻)
+  // auxiliary controls — same finger-friendly-touch-target-larger-
+  // than-visible-icon pattern as resizeTouchTarget, above.
+  auxTouchTarget: {
+    position: "absolute",
+    width: AUX_CONTROL_TOUCH_SIZE,
+    height: AUX_CONTROL_TOUCH_SIZE,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  // The rotation handle: a small circular control with a clear ↻
+  // arrow glyph, sitting at the bottom-right corner of the selection
+  // (CRITICAL FIX 6) rather than a plain unlabeled dot above the
+  // sticker.
   rotateHandleVisual: {
-    width: RESIZE_HANDLE_VISUAL_SIZE,
-    height: RESIZE_HANDLE_VISUAL_SIZE,
-    borderRadius: RESIZE_HANDLE_VISUAL_SIZE / 2,
+    width: AUX_CONTROL_VISIBLE_SIZE,
+    height: AUX_CONTROL_VISIBLE_SIZE,
+    borderRadius: AUX_CONTROL_VISIBLE_SIZE / 2,
     borderWidth: 1.5,
     borderColor: Colors.accentBright,
     backgroundColor: Colors.surfaceBright,
+    alignItems: "center",
+    justifyContent: "center",
   },
 
-  // Cut Line tab preview: an honest APPROXIMATION of the future cut
-  // path (a colored outline around the sticker's bounding box), not a
-  // real traced contour — see the "tight" shape's comment in
-  // constants/cut-line.ts.
-  cutLinePreviewOverlay: {
-    position: "absolute",
-    top: -OVERLAY_INSET,
-    left: -OVERLAY_INSET,
-    right: -OVERLAY_INSET,
-    bottom: -OVERLAY_INSET,
-    borderWidth: 2,
-    borderStyle: "dashed",
+  rotateHandleIcon: {
+    color: Colors.accentBright,
+    fontSize: 14,
+    fontWeight: "700",
+    lineHeight: 16,
   },
 
-  cutLinePreviewRound: {
-    borderRadius: 16,
+  // The delete control: a small circular control with a clear × glyph
+  // in the theme's danger color, sitting at the top-right corner of
+  // the selection (CRITICAL FIX: delete UX). Deliberately the same
+  // visual weight as the rotate handle so the two auxiliary controls
+  // read as a matched pair rather than one standing out.
+  deleteControlVisual: {
+    width: AUX_CONTROL_VISIBLE_SIZE,
+    height: AUX_CONTROL_VISIBLE_SIZE,
+    borderRadius: AUX_CONTROL_VISIBLE_SIZE / 2,
+    borderWidth: 1.5,
+    borderColor: Colors.danger,
+    backgroundColor: Colors.surfaceBright,
+    alignItems: "center",
+    justifyContent: "center",
   },
 
-  cutLinePreviewRect: {
-    borderRadius: 0,
+  deleteControlText: {
+    color: Colors.danger,
+    fontSize: 15,
+    fontWeight: "700",
+    lineHeight: 17,
   },
 });

@@ -21,6 +21,9 @@ import {
 
 import { SafeAreaView } from "react-native-safe-area-context";
 
+import { Gesture, GestureDetector } from "react-native-gesture-handler";
+import { runOnJS } from "react-native-reanimated";
+
 import { CanvasRuler } from "@/components/editor/CanvasRuler";
 import { GuideLine } from "@/components/editor/GuideLine";
 import { StickerItem } from "@/components/editor/StickerItem";
@@ -36,8 +39,12 @@ import { Colors } from "@/constants/colors";
 import {
   CUT_LINE_COLOR_SWATCHES,
   CUT_SHAPE_OPTIONS,
+  CUT_OFFSET_STEP_MM,
   DEFAULT_CUT_LINE_COLOR,
   DEFAULT_CUT_LINE_SHAPE,
+  DEFAULT_CUT_OFFSET_MM,
+  MAX_CUT_OFFSET_MM,
+  MIN_CUT_OFFSET_MM,
 } from "@/constants/cut-line";
 
 import { DEFAULT_THEME_ID } from "@/constants/themes";
@@ -47,6 +54,8 @@ import {
   createStickerFromImportedImage,
   createStickerFromUrl,
 } from "@/image/importImage";
+
+import { removeImageBackground } from "@/image/removeBackground";
 
 import { getProject, saveProject } from "@/storage/projectStorage";
 
@@ -107,6 +116,14 @@ export default function EditorScreen() {
   const [isImporting, setIsImporting] = useState(false);
 
   const [activeTab, setActiveTab] = useState<EditorTab>("canvas");
+
+  /**
+   * Sticker id currently running Remove BG, if any — drives the
+   * toolbar button's "Removing…" state. Only one at a time since only
+   * one sticker can be selected/acted on from that toolbar.
+   */
+  const [removeBackgroundStickerId, setRemoveBackgroundStickerId] =
+    useState<string | null>(null);
 
   /**
    * Inline rename state for the project name in the header. `null`
@@ -447,6 +464,10 @@ export default function EditorScreen() {
             rotation: 0,
 
             aspectLocked: true,
+
+            processedUri: undefined,
+
+            backgroundRemoved: false,
           };
         }
 
@@ -480,6 +501,16 @@ export default function EditorScreen() {
           rotation: 0,
 
           aspectLocked: true,
+
+          /**
+           * Revert restores the ORIGINAL image too (sourceUri was
+           * never touched by Remove BG — only processedUri /
+           * backgroundRemoved need clearing to fall back to it, since
+           * rendering always uses `processedUri ?? sourceUri`).
+           */
+          processedUri: undefined,
+
+          backgroundRemoved: false,
         };
       }),
     };
@@ -487,6 +518,67 @@ export default function EditorScreen() {
     setProject(updatedProject);
 
     saveProject(updatedProject).catch(() => {});
+  }
+
+  /**
+   * Runs background removal for one sticker via the processing
+   * adapter (src/image/removeBackground.ts). That adapter currently
+   * always rejects — see its file comment for exactly why and what a
+   * real implementation needs — so this deliberately does NOT set
+   * backgroundRemoved: true anywhere in this function; only a genuine
+   * successful result would ever do that.
+   */
+  async function handleRemoveBackground(id: string) {
+    if (!project) {
+      return;
+    }
+
+    const sticker = project.stickers.find((candidate) => candidate.id === id);
+
+    if (!sticker || sticker.backgroundRemoved) {
+      return;
+    }
+
+    setRemoveBackgroundStickerId(id);
+
+    try {
+      const result = await removeImageBackground(sticker.sourceUri);
+
+      setProject((current) => {
+        if (!current) {
+          return current;
+        }
+
+        const updated: StickerProject = {
+          ...current,
+
+          stickers: current.stickers.map((candidate) =>
+            candidate.id === id
+              ? {
+                  ...candidate,
+
+                  processedUri: result.uri,
+
+                  backgroundRemoved: true,
+                }
+              : candidate,
+          ),
+        };
+
+        saveProject(updated).catch(() => {});
+
+        return updated;
+      });
+    } catch (error) {
+      Alert.alert(
+        "Remove BG isn't available yet",
+        error instanceof Error
+          ? error.message
+          : "Background removal could not run.",
+      );
+    } finally {
+      setRemoveBackgroundStickerId(null);
+    }
   }
 
   // ============================================================
@@ -635,6 +727,79 @@ export default function EditorScreen() {
               cutLine: {
                 ...sticker.cutLine,
                 color,
+              },
+            }
+          : sticker,
+      ),
+    };
+
+    setProject(updatedProject);
+
+    saveProject(updatedProject).catch(() => {});
+  }
+
+  /**
+   * Clamps to [MIN_CUT_OFFSET_MM, MAX_CUT_OFFSET_MM] and rounds to the
+   * nearest CUT_OFFSET_STEP_MM so both the +/- buttons and the slider
+   * always land on the same set of values, then autosaves — same
+   * pattern as every other cut-line setter above.
+   */
+  function handleSetCutLineOffset(offsetMm: number) {
+    if (!project || !selectedStickerId) {
+      return;
+    }
+
+    const stepped =
+      Math.round(offsetMm / CUT_OFFSET_STEP_MM) * CUT_OFFSET_STEP_MM;
+
+    const clamped = Math.min(
+      MAX_CUT_OFFSET_MM,
+      Math.max(MIN_CUT_OFFSET_MM, stepped),
+    );
+
+    const updatedProject: StickerProject = {
+      ...project,
+
+      stickers: project.stickers.map((sticker) =>
+        sticker.id === selectedStickerId
+          ? {
+              ...sticker,
+
+              cutLine: {
+                ...sticker.cutLine,
+                offsetMm: clamped,
+              },
+            }
+          : sticker,
+      ),
+    };
+
+    setProject(updatedProject);
+
+    saveProject(updatedProject).catch(() => {});
+  }
+
+  /**
+   * "Show cut line" — gates whether Preview/Export render this
+   * sticker's cut line at all (the editor's own Cut Line tab preview
+   * stays visible regardless, as an editing aid).
+   */
+  function handleToggleCutLineEnabled() {
+    if (!project || !selectedStickerId) {
+      return;
+    }
+
+    const updatedProject: StickerProject = {
+      ...project,
+
+      stickers: project.stickers.map((sticker) =>
+        sticker.id === selectedStickerId
+          ? {
+              ...sticker,
+
+              cutLine: {
+                ...sticker.cutLine,
+                enabled: !(sticker.cutLine.enabled ?? false),
               },
             }
           : sticker,
@@ -1409,6 +1574,7 @@ export default function EditorScreen() {
                     onMove={handleStickerMove}
                     onResize={handleStickerResize}
                     onRotate={handleStickerRotate}
+                    onDelete={handleDeleteSticker}
                     interactionMode={
                       activeTab === "cutLine" ? "cutLine" : "transform"
                     }
@@ -1499,9 +1665,10 @@ export default function EditorScreen() {
         {/* =====================================================
             SELECTED OBJECT ACTIONS
 
-            No fake Remove BG button appears here because the actual
-            background-removal processing pipeline has not been
-            implemented yet.
+            Remove BG is wired to a real processing adapter
+            (src/image/removeBackground.ts) that currently always
+            reports itself unavailable rather than faking a result —
+            see that file for exactly what's needed to turn it on.
         ====================================================== */}
 
         {selectedStickerId && activeSticker && (
@@ -1532,6 +1699,10 @@ export default function EditorScreen() {
             <Text style={styles.selectionInfoText}>
               Background: {activeSticker.backgroundRemoved ? "Removed" : "Original"}
             </Text>
+
+            <Text style={styles.selectionInfoText}>
+              Rotation: {Math.round(activeSticker.rotation)}°
+            </Text>
           </View>
         )}
 
@@ -1560,6 +1731,19 @@ export default function EditorScreen() {
 
             <TouchableOpacity
               style={styles.selectionActionButton}
+              onPress={() => handleRemoveBackground(selectedStickerId)}
+            >
+              <Text style={styles.selectionActionText}>
+                {removeBackgroundStickerId === selectedStickerId
+                  ? "Removing…"
+                  : activeSticker.backgroundRemoved
+                    ? "BG Removed ✓"
+                    : "Remove BG"}
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.selectionActionButton}
               onPress={handleRevertSelected}
             >
               <Text style={styles.selectionActionText}>Revert</Text>
@@ -1570,23 +1754,6 @@ export default function EditorScreen() {
               onPress={() => handleDuplicateSticker(selectedStickerId)}
             >
               <Text style={styles.selectionActionText}>Duplicate</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[
-                styles.selectionActionButton,
-                styles.selectionActionButtonDanger,
-              ]}
-              onPress={() => handleDeleteSticker(selectedStickerId)}
-            >
-              <Text
-                style={[
-                  styles.selectionActionText,
-                  styles.selectionActionTextDanger,
-                ]}
-              >
-                Delete
-              </Text>
             </TouchableOpacity>
           </View>
         )}
@@ -1847,6 +2014,28 @@ export default function EditorScreen() {
               </View>
             ) : (
               <>
+                <TouchableOpacity
+                  style={styles.cutLineEnabledRow}
+                  onPress={handleToggleCutLineEnabled}
+                >
+                  <View
+                    style={[
+                      styles.cutLineEnabledCheckbox,
+
+                      (activeSticker.cutLine.enabled ?? false) &&
+                        styles.cutLineEnabledCheckboxChecked,
+                    ]}
+                  >
+                    {(activeSticker.cutLine.enabled ?? false) && (
+                      <Text style={styles.cutLineEnabledCheckmark}>✓</Text>
+                    )}
+                  </View>
+
+                  <Text style={styles.cutLineEnabledLabel}>
+                    Show cut line
+                  </Text>
+                </TouchableOpacity>
+
                 <View>
                   <Text style={styles.sectionLabel}>CUT SHAPE</Text>
 
@@ -1909,6 +2098,71 @@ export default function EditorScreen() {
                 </View>
 
                 <View>
+                  <Text style={styles.sectionLabel}>CUT LINE OFFSET</Text>
+
+                  <View style={[styles.cutOffsetRow, { marginTop: 8 }]}>
+                    <TouchableOpacity
+                      style={[
+                        styles.cutOffsetButton,
+
+                        (activeSticker.cutLine.offsetMm ??
+                          DEFAULT_CUT_OFFSET_MM) <= MIN_CUT_OFFSET_MM &&
+                          styles.cutOffsetButtonDisabled,
+                      ]}
+                      disabled={
+                        (activeSticker.cutLine.offsetMm ??
+                          DEFAULT_CUT_OFFSET_MM) <= MIN_CUT_OFFSET_MM
+                      }
+                      onPress={() =>
+                        handleSetCutLineOffset(
+                          (activeSticker.cutLine.offsetMm ??
+                            DEFAULT_CUT_OFFSET_MM) - CUT_OFFSET_STEP_MM,
+                        )
+                      }
+                    >
+                      <Text style={styles.cutOffsetButtonText}>−</Text>
+                    </TouchableOpacity>
+
+                    <Text style={styles.cutOffsetValueText}>
+                      {(
+                        activeSticker.cutLine.offsetMm ??
+                        DEFAULT_CUT_OFFSET_MM
+                      ).toFixed(1)}{" "}
+                      mm
+                    </Text>
+
+                    <TouchableOpacity
+                      style={[
+                        styles.cutOffsetButton,
+
+                        (activeSticker.cutLine.offsetMm ??
+                          DEFAULT_CUT_OFFSET_MM) >= MAX_CUT_OFFSET_MM &&
+                          styles.cutOffsetButtonDisabled,
+                      ]}
+                      disabled={
+                        (activeSticker.cutLine.offsetMm ??
+                          DEFAULT_CUT_OFFSET_MM) >= MAX_CUT_OFFSET_MM
+                      }
+                      onPress={() =>
+                        handleSetCutLineOffset(
+                          (activeSticker.cutLine.offsetMm ??
+                            DEFAULT_CUT_OFFSET_MM) + CUT_OFFSET_STEP_MM,
+                        )
+                      }
+                    >
+                      <Text style={styles.cutOffsetButtonText}>+</Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  <CutOffsetSlider
+                    valueMm={
+                      activeSticker.cutLine.offsetMm ?? DEFAULT_CUT_OFFSET_MM
+                    }
+                    onChange={handleSetCutLineOffset}
+                  />
+                </View>
+
+                <View>
                   <Text style={styles.sectionLabel}>LINE COLOR</Text>
 
                   <View
@@ -1950,6 +2204,101 @@ export default function EditorScreen() {
         )}
       </View>
     </SafeAreaView>
+  );
+}
+
+// ============================================================
+// CUT LINE OFFSET SLIDER
+// ============================================================
+
+/**
+ * Lightweight custom slider (no @react-native-community/slider
+ * dependency — react-native-gesture-handler is already a dependency
+ * and covers this) spanning MIN_CUT_OFFSET_MM..MAX_CUT_OFFSET_MM.
+ * Dragging or tapping the track reports a value; the caller
+ * (handleSetCutLineOffset) is responsible for clamping/stepping, so
+ * this component and the +/- buttons both funnel into the exact same
+ * setter.
+ */
+function CutOffsetSlider({
+  valueMm,
+  onChange,
+}: {
+  valueMm: number;
+  onChange: (mm: number) => void;
+}) {
+  const [trackWidth, setTrackWidth] = useState(0);
+
+  function valueFromLocalX(x: number) {
+    if (trackWidth <= 0) {
+      return valueMm;
+    }
+
+    const ratio = Math.min(Math.max(x / trackWidth, 0), 1);
+
+    return (
+      MIN_CUT_OFFSET_MM + ratio * (MAX_CUT_OFFSET_MM - MIN_CUT_OFFSET_MM)
+    );
+  }
+
+  const dragGesture = Gesture.Pan()
+    .onUpdate((event) => {
+      runOnJS(onChange)(valueFromLocalX(event.x));
+    })
+    .onEnd((event) => {
+      runOnJS(onChange)(valueFromLocalX(event.x));
+    });
+
+  const tapGesture = Gesture.Tap().onEnd((event, success) => {
+    if (success) {
+      runOnJS(onChange)(valueFromLocalX(event.x));
+    }
+  });
+
+  const gesture = Gesture.Race(dragGesture, tapGesture);
+
+  const ratio =
+    MAX_CUT_OFFSET_MM > MIN_CUT_OFFSET_MM
+      ? Math.min(
+          Math.max(
+            (valueMm - MIN_CUT_OFFSET_MM) /
+              (MAX_CUT_OFFSET_MM - MIN_CUT_OFFSET_MM),
+            0,
+          ),
+          1,
+        )
+      : 0;
+
+  return (
+    <View>
+      <GestureDetector gesture={gesture}>
+        <View
+          style={styles.cutOffsetSliderTrack}
+          onLayout={(event) => setTrackWidth(event.nativeEvent.layout.width)}
+        >
+          <View style={styles.cutOffsetSliderRail}>
+            <View
+              style={[styles.cutOffsetSliderFill, { width: `${ratio * 100}%` }]}
+            />
+          </View>
+
+          <View
+            pointerEvents="none"
+            style={[styles.cutOffsetSliderThumb, { left: `${ratio * 100}%` }]}
+          />
+        </View>
+      </GestureDetector>
+
+      <View style={styles.cutOffsetSliderScaleRow}>
+        <Text style={styles.cutOffsetSliderScaleText}>
+          {MIN_CUT_OFFSET_MM} mm
+        </Text>
+
+        <Text style={styles.cutOffsetSliderScaleText}>
+          {MAX_CUT_OFFSET_MM} mm
+        </Text>
+      </View>
+    </View>
   );
 }
 

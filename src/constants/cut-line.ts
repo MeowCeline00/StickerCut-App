@@ -32,3 +32,17 @@ export const CUT_LINE_COLOR_SWATCHES: CutLineColorSwatch[] = [
 
 export const DEFAULT_CUT_LINE_SHAPE: CutLineShape = 'round';
 export const DEFAULT_CUT_LINE_COLOR = CUT_LINE_COLOR_SWATCHES[0].value;
+export const DEFAULT_CUT_LINE_ENABLED = false;
+
+// Physical gap between the visible artwork and the cutting path,
+// always stored in millimeters (StickerObject.cutLine.offsetMm) —
+// converted to display px only at render time via
+// `offsetMm * editorScale`. Never store screen pixels in project state.
+export const MIN_CUT_OFFSET_MM = 0;
+export const MAX_CUT_OFFSET_MM = 10;
+export const CUT_OFFSET_STEP_MM = 0.5;
+export const DEFAULT_CUT_OFFSET_MM = 2;
+
+// Editor/preview stroke width for the cut-line overlay, in display px
+// (not physical — this is purely how thick the line looks on screen).
+export const CUT_LINE_STROKE_PX = 1.75;

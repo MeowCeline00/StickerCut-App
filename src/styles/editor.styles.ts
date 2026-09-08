@@ -551,6 +551,119 @@ export const styles = StyleSheet.create({
     fontFamily: 'monospace',
   },
 
+  cutLineEnabledRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+
+  cutLineEnabledCheckbox: {
+    width: 20,
+    height: 20,
+    borderRadius: 5,
+    borderWidth: 1.5,
+    borderColor: Colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  cutLineEnabledCheckboxChecked: {
+    borderColor: Colors.accent,
+    backgroundColor: Colors.accent,
+  },
+
+  cutLineEnabledCheckmark: {
+    color: Colors.white,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+
+  cutLineEnabledLabel: {
+    color: Colors.text,
+    fontSize: 12,
+    fontWeight: '600',
+  },
+
+  // Offset: [-] value [+] buttons, plus a lightweight custom slider
+  // (no @react-native-community/slider dependency — this project
+  // avoids adding packages where an existing one, here
+  // react-native-gesture-handler, already covers it).
+  cutOffsetRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 14,
+  },
+
+  cutOffsetButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  cutOffsetButtonDisabled: {
+    opacity: 0.4,
+  },
+
+  cutOffsetButtonText: {
+    color: Colors.accent,
+    fontSize: 16,
+    fontWeight: '700',
+  },
+
+  cutOffsetValueText: {
+    color: Colors.text,
+    fontSize: 13,
+    fontWeight: '700',
+    fontFamily: 'monospace',
+    minWidth: 60,
+    textAlign: 'center',
+  },
+
+  cutOffsetSliderTrack: {
+    height: 28,
+    justifyContent: 'center',
+    marginTop: 4,
+  },
+
+  cutOffsetSliderRail: {
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: Colors.border,
+    overflow: 'hidden',
+  },
+
+  cutOffsetSliderFill: {
+    height: 4,
+    backgroundColor: Colors.accent,
+  },
+
+  cutOffsetSliderThumb: {
+    position: 'absolute',
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: Colors.accent,
+    marginLeft: -9,
+    top: 5,
+  },
+
+  cutOffsetSliderScaleRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 2,
+  },
+
+  cutOffsetSliderScaleText: {
+    color: Colors.textMuted,
+    fontSize: 8,
+    fontFamily: 'monospace',
+  },
+
   // ---- Header "Done" (export) button --------------------------------
   doneButton: {
     borderRadius: 8,

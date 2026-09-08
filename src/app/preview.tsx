@@ -9,8 +9,18 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { DEFAULT_CANVAS_COLOR } from "@/constants/canvas-colors";
 import { Colors } from "@/constants/colors";
+import {
+  DEFAULT_CUT_LINE_COLOR,
+  DEFAULT_CUT_LINE_SHAPE,
+  DEFAULT_CUT_OFFSET_MM,
+  CUT_LINE_STROKE_PX,
+} from "@/constants/cut-line";
+
+import { createCutPath } from "@/cut/createCutPath";
 
 import { getProject } from "@/storage/projectStorage";
+
+import type { StickerObject } from "@/types/sticker";
 
 import { styles } from "@/styles/preview.styles";
 
@@ -135,37 +145,95 @@ function ProjectPreviewPage({
     >
       {transparent && <PreviewCheckerboard />}
 
-      {sortedStickers.map((sticker) => {
-        const left = mmToDisplay(sticker.xMm, previewScale);
-        const top = mmToDisplay(sticker.yMm, previewScale);
-        const width = mmToDisplay(sticker.widthMm, previewScale);
-        const height = mmToDisplay(sticker.heightMm, previewScale);
-        const imageUri = sticker.processedUri ?? sticker.sourceUri;
-
-        return (
-          <Image
-            key={sticker.id}
-            source={{ uri: imageUri }}
-            contentFit="contain"
-            style={[
-              styles.previewSticker,
-              {
-                left,
-                top,
-                width,
-                height,
-                zIndex: sticker.zIndex,
-                transform: [{ rotate: `${sticker.rotation}deg` }],
-              },
-            ]}
-          />
-        );
-      })}
+      {sortedStickers.map((sticker) => (
+        <PreviewSticker
+          key={sticker.id}
+          sticker={sticker}
+          previewScale={previewScale}
+        />
+      ))}
 
       {project.stickers.length === 0 && (
         <View style={styles.previewEmptyOverlay}>
           <Text style={styles.previewText}>NO STICKERS YET</Text>
         </View>
+      )}
+    </View>
+  );
+}
+
+/**
+ * One sticker's real output: artwork, then — only when
+ * cutLine.enabled === true — its cut line on top, using the SAME
+ * geometry helper (src/cut/createCutPath.ts) the editor's
+ * CutLinePreview uses, so this line can never drift from what the
+ * user saw while editing. No rulers/guides/handles/labels/checkerboard
+ * render here; this is the actual production output, modulo only
+ * pixels-vs-vectors (export, when it exists, renders the same
+ * geometry as real vector paths instead of a raster overlay).
+ *
+ * Artwork and cut line share one rotating wrapper so the cut line
+ * rotates together with the sticker, exactly like in the editor.
+ */
+function PreviewSticker({
+  sticker,
+  previewScale,
+}: {
+  sticker: StickerObject;
+  previewScale: number;
+}) {
+  const left = mmToDisplay(sticker.xMm, previewScale);
+  const top = mmToDisplay(sticker.yMm, previewScale);
+  const width = mmToDisplay(sticker.widthMm, previewScale);
+  const height = mmToDisplay(sticker.heightMm, previewScale);
+  const imageUri = sticker.processedUri ?? sticker.sourceUri;
+
+  const cutLineEnabled = sticker.cutLine.enabled ?? false;
+
+  const shape = sticker.cutLine.shape ?? DEFAULT_CUT_LINE_SHAPE;
+  const color = sticker.cutLine.color ?? DEFAULT_CUT_LINE_COLOR;
+  const offsetMm = sticker.cutLine.offsetMm ?? DEFAULT_CUT_OFFSET_MM;
+  const offsetPx = mmToDisplay(Math.max(0, offsetMm), previewScale);
+
+  const cutGeometry = cutLineEnabled
+    ? createCutPath(shape, width, height, offsetPx)
+    : null;
+
+  return (
+    <View
+      style={[
+        styles.previewStickerWrapper,
+        {
+          left,
+          top,
+          width,
+          height,
+          zIndex: sticker.zIndex,
+          transform: [{ rotate: `${sticker.rotation}deg` }],
+        },
+      ]}
+    >
+      <Image
+        source={{ uri: imageUri }}
+        contentFit="contain"
+        style={styles.previewStickerImage}
+      />
+
+      {cutGeometry && (
+        <View
+          pointerEvents="none"
+          style={{
+            position: "absolute",
+            left: cutGeometry.left,
+            top: cutGeometry.top,
+            width: cutGeometry.width,
+            height: cutGeometry.height,
+            borderRadius: cutGeometry.borderRadius,
+            borderWidth: CUT_LINE_STROKE_PX,
+            borderColor: color,
+            backgroundColor: "transparent",
+          }}
+        />
       )}
     </View>
   );

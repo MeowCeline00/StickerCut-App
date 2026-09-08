@@ -18,11 +18,17 @@ import {
 import {
   DEFAULT_CUT_LINE_COLOR,
   DEFAULT_CUT_LINE_SHAPE,
+  DEFAULT_CUT_OFFSET_MM,
+  CUT_LINE_STROKE_PX,
 } from "@/constants/cut-line";
+
+import { createCutPath } from "@/cut/createCutPath";
 
 import type {
   StickerObject,
 } from "@/types/sticker";
+
+import { mmToDisplay } from "@/utils/units";
 
 import {
   styles,
@@ -57,12 +63,12 @@ interface SelectionBadgesProps {
 /**
  * Minimal on-canvas readout for the selected sticker (CRITICAL FIX 5).
  *
- * Only the physical size — plus a tiny rotation indicator when the
- * sticker is actually rotated — renders over the artwork. PPI and
- * background-removal state used to render here too, but that made the
- * annotation big enough to obstruct the artwork itself; they now live
- * in the editor's selected-object info row instead (see editor.tsx),
- * which has room to be readable without covering anything.
+ * Only the physical size renders over the artwork. PPI, background
+ * state, and rotation all used to render here too, but that made the
+ * annotation big enough to obstruct the artwork itself, and rotation
+ * in particular is now communicated by the ↻ handle itself rather
+ * than a number — see editor.tsx's selectionInfoRow for the readable
+ * "Rotation: 23°" line instead.
  *
  * This component is presentational only.
  * Gesture logic remains inside StickerItem.tsx.
@@ -70,11 +76,6 @@ interface SelectionBadgesProps {
 export function SelectionBadges({
   sticker,
 }: SelectionBadgesProps) {
-  const rotationDeg =
-    Math.round(
-      sticker.rotation,
-    );
-
   return (
     <View
       style={
@@ -102,17 +103,6 @@ export function SelectionBadges({
           )}
           {" mm"}
         </Text>
-
-        {rotationDeg !== 0 && (
-          <Text
-            style={
-              styles.rotationLabelText
-            }
-            numberOfLines={1}
-          >
-            {rotationDeg}°
-          </Text>
-        )}
       </View>
     </View>
   );
@@ -120,15 +110,38 @@ export function SelectionBadges({
 
 interface CutLinePreviewProps {
   sticker: StickerObject;
+
+  /**
+   * Display px per physical mm — the same value StickerItem uses to
+   * convert the artwork's own widthMm/heightMm into screen pixels, so
+   * the cut line's offset is derived from the identical scale as the
+   * artwork it surrounds.
+   */
+  editorScale: number;
+
+  /**
+   * The artwork's own on-screen size (display px), i.e. the same
+   * `width`/`height` StickerItem already computed via mmToDisplay —
+   * passed in rather than recomputed so there is exactly one source
+   * of truth for it.
+   */
+  artworkWidthPx: number;
+  artworkHeightPx: number;
 }
 
 /**
- * Temporary visual cut-line preview.
+ * Cut-line preview built from the SAME geometry helpers
+ * (src/cut/createCutPath.ts) used by the production preview screen,
+ * so the editor's line and preview.tsx's line can never drift apart.
  *
- * This is NOT the final contour-tracing implementation.
+ * This is a bounding-box approximation, not a true traced contour —
+ * see createCutPath.ts's "tight" comment.
  */
 export function CutLinePreview({
   sticker,
+  editorScale,
+  artworkWidthPx,
+  artworkHeightPx,
 }: CutLinePreviewProps) {
   const shape =
     sticker.cutLine.shape ??
@@ -138,21 +151,40 @@ export function CutLinePreview({
     sticker.cutLine.color ??
     DEFAULT_CUT_LINE_COLOR;
 
+  const offsetMm =
+    sticker.cutLine.offsetMm ??
+    DEFAULT_CUT_OFFSET_MM;
+
+  const offsetPx =
+    mmToDisplay(
+      Math.max(0, offsetMm),
+      editorScale,
+    );
+
+  const geometry =
+    createCutPath(
+      shape,
+      artworkWidthPx,
+      artworkHeightPx,
+      offsetPx,
+    );
+
   return (
     <View
       pointerEvents="none"
-      style={[
-        styles.cutLinePreviewOverlay,
+      style={{
+        position: "absolute",
 
-        shape === "rect"
-          ? styles.cutLinePreviewRect
-          : styles.cutLinePreviewRound,
+        left: geometry.left,
+        top: geometry.top,
+        width: geometry.width,
+        height: geometry.height,
 
-        {
-          borderColor:
-            color,
-        },
-      ]}
+        borderRadius: geometry.borderRadius,
+        borderWidth: CUT_LINE_STROKE_PX,
+        borderColor: color,
+        backgroundColor: "transparent",
+      }}
     />
   );
 }
@@ -162,13 +194,31 @@ interface SelectionHandlesProps {
 
   height: number;
 
-  resizeTouchTargetMargin:
+  /**
+   * Offset of the artwork's own top-left corner from the interaction
+   * root's top-left corner. Unlike the old single symmetric margin,
+   * left/top can differ from the space reserved on the right/bottom
+   * for the delete (top-right) and rotate (bottom-right) controls.
+   */
+  marginLeft:
     number;
 
-  rotateHandleGap:
+  marginTop:
     number;
 
   halfTouchTarget:
+    number;
+
+  /**
+   * How far outside each resize corner the delete/rotate auxiliary
+   * controls sit (applied diagonally, both axes), and half of their
+   * own touch target size — used to position them without overlapping
+   * the resize handles at the same corner.
+   */
+  auxControlOffset:
+    number;
+
+  auxHalfTouchTarget:
     number;
 
   /*
@@ -206,10 +256,14 @@ interface SelectionHandlesProps {
 
   rotateGesture:
     GestureType;
+
+  deleteGesture:
+    GestureType;
 }
 
 /**
- * Four resize handles plus one rotation handle.
+ * Four resize handles, one rotation handle (bottom-right, ↻), and one
+ * delete control (top-right, ×).
  *
  * Gesture state and transform mathematics remain owned by
  * StickerItem.tsx. This component is responsible only for positioning
@@ -219,9 +273,12 @@ export function SelectionHandles({
   width,
   height,
 
-  resizeTouchTargetMargin,
-  rotateHandleGap,
+  marginLeft,
+  marginTop,
   halfTouchTarget,
+
+  auxControlOffset,
+  auxHalfTouchTarget,
 
   topLeftHandleStyle,
   topRightHandleStyle,
@@ -234,10 +291,14 @@ export function SelectionHandles({
   resizeBottomLeftGesture,
   resizeBottomRightGesture,
   rotateGesture,
+  deleteGesture,
 }: SelectionHandlesProps) {
+  const cornerRight = marginLeft + width;
+  const cornerBottom = marginTop + height;
+
   return (
     <>
-      {/* TOP LEFT */}
+      {/* TOP LEFT resize */}
       <GestureDetector
         gesture={
           resizeTopLeftGesture
@@ -249,12 +310,11 @@ export function SelectionHandles({
 
             {
               left:
-                resizeTouchTargetMargin -
+                marginLeft -
                 halfTouchTarget,
 
               top:
-                resizeTouchTargetMargin +
-                rotateHandleGap -
+                marginTop -
                 halfTouchTarget,
             },
 
@@ -270,7 +330,7 @@ export function SelectionHandles({
         </Animated.View>
       </GestureDetector>
 
-      {/* TOP RIGHT */}
+      {/* TOP RIGHT resize */}
       <GestureDetector
         gesture={
           resizeTopRightGesture
@@ -282,13 +342,11 @@ export function SelectionHandles({
 
             {
               left:
-                resizeTouchTargetMargin +
-                width -
+                cornerRight -
                 halfTouchTarget,
 
               top:
-                resizeTouchTargetMargin +
-                rotateHandleGap -
+                marginTop -
                 halfTouchTarget,
             },
 
@@ -304,7 +362,7 @@ export function SelectionHandles({
         </Animated.View>
       </GestureDetector>
 
-      {/* BOTTOM LEFT */}
+      {/* BOTTOM LEFT resize */}
       <GestureDetector
         gesture={
           resizeBottomLeftGesture
@@ -316,13 +374,11 @@ export function SelectionHandles({
 
             {
               left:
-                resizeTouchTargetMargin -
+                marginLeft -
                 halfTouchTarget,
 
               top:
-                resizeTouchTargetMargin +
-                rotateHandleGap +
-                height -
+                cornerBottom -
                 halfTouchTarget,
             },
 
@@ -338,7 +394,7 @@ export function SelectionHandles({
         </Animated.View>
       </GestureDetector>
 
-      {/* BOTTOM RIGHT */}
+      {/* BOTTOM RIGHT resize */}
       <GestureDetector
         gesture={
           resizeBottomRightGesture
@@ -350,14 +406,11 @@ export function SelectionHandles({
 
             {
               left:
-                resizeTouchTargetMargin +
-                width -
+                cornerRight -
                 halfTouchTarget,
 
               top:
-                resizeTouchTargetMargin +
-                rotateHandleGap +
-                height -
+                cornerBottom -
                 halfTouchTarget,
             },
 
@@ -373,7 +426,11 @@ export function SelectionHandles({
         </Animated.View>
       </GestureDetector>
 
-      {/* ROTATION HANDLE */}
+      {/*
+        ROTATE — bottom-right corner, offset diagonally outward past
+        the bottom-right resize handle so their touch targets don't
+        overlap. Shows a clear ↻ arrow rather than a bare dot.
+      */}
       <GestureDetector
         gesture={
           rotateGesture
@@ -381,17 +438,18 @@ export function SelectionHandles({
       >
         <Animated.View
           style={[
-            styles.resizeTouchTarget,
+            styles.auxTouchTarget,
 
             {
               left:
-                resizeTouchTargetMargin +
-                width / 2 -
-                halfTouchTarget,
+                cornerRight +
+                auxControlOffset -
+                auxHalfTouchTarget,
 
               top:
-                resizeTouchTargetMargin -
-                halfTouchTarget,
+                cornerBottom +
+                auxControlOffset -
+                auxHalfTouchTarget,
             },
 
             rotateHandleStyle,
@@ -402,8 +460,60 @@ export function SelectionHandles({
               styles.rotateHandleVisual
             }
             pointerEvents="none"
-          />
+          >
+            <Text
+              style={
+                styles.rotateHandleIcon
+              }
+            >
+              ↻
+            </Text>
+          </View>
         </Animated.View>
+      </GestureDetector>
+
+      {/*
+        DELETE — top-right corner, offset diagonally outward past the
+        top-right resize handle. A plain (non-animated) touch target:
+        deletion doesn't need a live drag preview.
+      */}
+      <GestureDetector
+        gesture={
+          deleteGesture
+        }
+      >
+        <View
+          style={[
+            styles.auxTouchTarget,
+
+            {
+              left:
+                cornerRight +
+                auxControlOffset -
+                auxHalfTouchTarget,
+
+              top:
+                marginTop -
+                auxControlOffset -
+                auxHalfTouchTarget,
+            },
+          ]}
+        >
+          <View
+            style={
+              styles.deleteControlVisual
+            }
+            pointerEvents="none"
+          >
+            <Text
+              style={
+                styles.deleteControlText
+              }
+            >
+              ×
+            </Text>
+          </View>
+        </View>
       </GestureDetector>
     </>
   );

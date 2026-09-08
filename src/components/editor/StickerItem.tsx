@@ -40,9 +40,19 @@ const RESIZE_TOUCH_TARGET_MARGIN =
   RESIZE_TOUCH_TARGET_SIZE / 2 + 2;
 
 /**
- * Distance between the top edge of the sticker and the rotation handle.
+ * Delete (top-right) / rotate (bottom-right) auxiliary controls.
+ *
+ * Must match the same-named constants in StickerItem.styles.ts.
+ * AUX_CONTROL_OFFSET is how far outside each resize corner the
+ * control's CENTER sits (applied diagonally, on both axes) — chosen
+ * so its touch target (half = 21) never overlaps the resize handle's
+ * own touch target (half = 20) at the same corner: the distance
+ * between the two centers is AUX_CONTROL_OFFSET * sqrt(2) ≈ 48, well
+ * past the 41px the two touch radii would need to touch.
  */
-const ROTATE_HANDLE_GAP = 30;
+const AUX_CONTROL_VISIBLE_SIZE = 24;
+const AUX_CONTROL_TOUCH_SIZE = 42;
+const AUX_CONTROL_OFFSET = 34;
 
 interface StickerItemProps {
   sticker: StickerObject;
@@ -97,6 +107,15 @@ interface StickerItemProps {
     deltaDegrees: number,
   ) => void;
 
+  /**
+   * Delete this sticker.
+   *
+   * StickerItem does not mutate project state itself — it only calls
+   * back into editor.tsx, which owns project state, same as
+   * onMove/onResize/onRotate above.
+   */
+  onDelete: (id: string) => void;
+
   interactionMode?: "transform" | "cutLine";
 }
 
@@ -138,6 +157,7 @@ export function StickerItem({
   onMove,
   onResize,
   onRotate,
+  onDelete,
   interactionMode = "transform",
 }: StickerItemProps) {
   /**
@@ -192,6 +212,25 @@ export function StickerItem({
   const imageUri =
     sticker.processedUri ??
     sticker.sourceUri;
+
+  /**
+   * The artwork's own top-left corner sits at (marginLeft, marginTop)
+   * inside interactionRoot. Only the left/top-left/bottom-left side
+   * uses the plain resize margin — the right side needs extra room
+   * for the delete (top-right) and rotate (bottom-right) auxiliary
+   * controls, which sit AUX_CONTROL_OFFSET past the corner plus their
+   * own half touch-target size.
+   */
+  const marginLeft =
+    RESIZE_TOUCH_TARGET_MARGIN;
+
+  const auxMargin =
+    AUX_CONTROL_OFFSET +
+    AUX_CONTROL_TOUCH_SIZE / 2;
+
+  const marginTop = auxMargin;
+  const marginRight = auxMargin;
+  const marginBottom = auxMargin;
 
   // ============================================================
   // MOVE STATE
@@ -454,15 +493,17 @@ export function StickerItem({
   /**
    * Rotation is measured around the sticker center.
    *
-   * At rest the rotation handle is directly above the center.
+   * At rest the rotate handle sits diagonally outside the bottom-right
+   * corner (CRITICAL FIX 6), so its rest vector points down-and-right
+   * from center rather than straight up.
    */
-  const restVectorX = 0;
+  const restVectorX =
+    width / 2 +
+    AUX_CONTROL_OFFSET;
 
   const restVectorY =
-    -(
-      height / 2 +
-      ROTATE_HANDLE_GAP
-    );
+    height / 2 +
+    AUX_CONTROL_OFFSET;
 
   const rotateGesture =
     Gesture.Pan()
@@ -499,6 +540,31 @@ export function StickerItem({
       .onFinalize(() => {
         liveRotation.value = 0;
       });
+
+  // ============================================================
+  // DELETE
+  // ============================================================
+
+  /**
+   * Single tap on the × control deletes immediately — no confirmation
+   * dialog (Duplicate/Revert remain available separately if the user
+   * wants a safety net). This is its own GestureDetector region, like
+   * the resize/rotate handles, so it never fires alongside a body
+   * drag or a resize.
+   */
+  const deleteGesture =
+    Gesture.Tap()
+      .maxDistance(8)
+
+      .onEnd(
+        (_event, success) => {
+          if (success) {
+            runOnJS(onDelete)(
+              sticker.id,
+            );
+          }
+        },
+      );
 
   // ============================================================
   // LIVE STICKER STYLE
@@ -569,11 +635,10 @@ export function StickerItem({
       if (!activeCorner) {
         return {
           left:
-            RESIZE_TOUCH_TARGET_MARGIN,
+            marginLeft,
 
           top:
-            RESIZE_TOUCH_TARGET_MARGIN +
-            ROTATE_HANDLE_GAP,
+            marginTop,
 
           width,
           height,
@@ -617,12 +682,11 @@ export function StickerItem({
 
       return {
         left:
-          RESIZE_TOUCH_TARGET_MARGIN +
+          marginLeft +
           result.deltaLeft,
 
         top:
-          RESIZE_TOUCH_TARGET_MARGIN +
-          ROTATE_HANDLE_GAP +
+          marginTop +
           result.deltaTop,
 
         width:
@@ -668,23 +732,21 @@ export function StickerItem({
    */
   const interactionLeft =
     left -
-    RESIZE_TOUCH_TARGET_MARGIN;
+    marginLeft;
 
   const interactionTop =
     top -
-    RESIZE_TOUCH_TARGET_MARGIN -
-    ROTATE_HANDLE_GAP;
+    marginTop;
 
   const interactionWidth =
     width +
-    RESIZE_TOUCH_TARGET_MARGIN *
-      2;
+    marginLeft +
+    marginRight;
 
   const interactionHeight =
     height +
-    RESIZE_TOUCH_TARGET_MARGIN *
-      2 +
-    ROTATE_HANDLE_GAP;
+    marginTop +
+    marginBottom;
 
   // ============================================================
   // HANDLE PREVIEW STYLES
@@ -827,6 +889,9 @@ export function StickerItem({
           {showCutLine && (
             <CutLinePreview
               sticker={sticker}
+              editorScale={editorScale}
+              artworkWidthPx={width}
+              artworkHeightPx={height}
             />
           )}
         </Animated.View>
@@ -843,16 +908,25 @@ export function StickerItem({
           width={width}
           height={height}
 
-          resizeTouchTargetMargin={
-            RESIZE_TOUCH_TARGET_MARGIN
+          marginLeft={
+            marginLeft
           }
 
-          rotateHandleGap={
-            ROTATE_HANDLE_GAP
+          marginTop={
+            marginTop
           }
 
           halfTouchTarget={
             RESIZE_TOUCH_TARGET_SIZE /
+            2
+          }
+
+          auxControlOffset={
+            AUX_CONTROL_OFFSET
+          }
+
+          auxHalfTouchTarget={
+            AUX_CONTROL_TOUCH_SIZE /
             2
           }
 
@@ -894,6 +968,10 @@ export function StickerItem({
 
           rotateGesture={
             rotateGesture
+          }
+
+          deleteGesture={
+            deleteGesture
           }
         />
       )}
