@@ -55,6 +55,8 @@ import {
   createStickerFromUrl,
 } from "@/image/importImage";
 
+import { checkBackendHealth } from "@/api/backendHealth";
+
 import { removeImageBackground } from "@/image/removeBackground";
 
 import { getProject, saveProject } from "@/storage/projectStorage";
@@ -553,6 +555,15 @@ export default function EditorScreen() {
     }
 
     setRemoveBackgroundStickerId(id);
+
+    if (__DEV__) {
+      // Temporary development diagnostic: isolates pure backend
+      // reachability from everything removeImageBackground() does
+      // beyond that (upload, save, etc). See src/api/backendHealth.ts.
+      checkBackendHealth().then((healthy) => {
+        console.log("[Remove BG] backend health check:", healthy);
+      });
+    }
 
     try {
       const result = await removeImageBackground(sticker.sourceUri);

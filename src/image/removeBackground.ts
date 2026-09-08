@@ -67,6 +67,14 @@ function inferUploadMimeType(uri: string): string {
 export async function removeImageBackground(
   sourceUri: string,
 ): Promise<RemoveBackgroundResult> {
+  if (__DEV__) {
+    // Temporary development diagnostic — confirms which URL this
+    // build actually resolved (EXPO_PUBLIC_BACKEND_URL from .env, or
+    // the Android-emulator default from src/config/api.ts) without
+    // needing to inspect .env by hand.
+    console.log("[Remove BG] backend URL:", API_CONFIG.backendUrl);
+  }
+
   const mimeType = inferUploadMimeType(sourceUri);
 
   const formData = new FormData();
@@ -92,12 +100,24 @@ export async function removeImageBackground(
       method: "POST",
       body: formData,
     });
-  } catch {
+  } catch (error) {
+    // The user-facing message below stays generic on purpose (it
+    // doesn't know WHY the connection failed), but the real error is
+    // exactly what distinguishes "cleartext HTTP blocked" from "wrong
+    // IP" from "backend not running" etc — never swallow it silently.
+    if (__DEV__) {
+      console.error("[Remove BG] network error:", error);
+    }
+
     throw new BackgroundRemovalUnavailableError(
       "Could not connect to the background-removal service. Make sure " +
         "the local backend is running (see backend/README.md) and that " +
         "EXPO_PUBLIC_BACKEND_URL in your .env points at it.",
     );
+  }
+
+  if (__DEV__) {
+    console.log("[Remove BG] response status:", response.status);
   }
 
   if (!response.ok) {
@@ -117,10 +137,18 @@ export async function removeImageBackground(
   try {
     const buffer = await response.arrayBuffer();
     bytes = new Uint8Array(buffer);
-  } catch {
+  } catch (error) {
+    if (__DEV__) {
+      console.error("[Remove BG] failed to read response body:", error);
+    }
+
     throw new BackgroundRemovalUnavailableError(
       "The background-removal service returned an unreadable response.",
     );
+  }
+
+  if (__DEV__) {
+    console.log("[Remove BG] bytes:", bytes.byteLength);
   }
 
   if (bytes.byteLength === 0) {
@@ -130,6 +158,11 @@ export async function removeImageBackground(
   }
 
   const uri = saveProcessedImageToAppStorage(bytes, "png");
+
+  if (__DEV__) {
+    console.log("[Remove BG] saved URI:", uri);
+  }
+
   const { width, height } = await getImageDimensions(uri);
 
   return { uri, width, height };
