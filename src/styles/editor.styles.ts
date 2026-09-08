@@ -11,7 +11,7 @@ import { Colors } from '@/constants/colors';
 // with where mm=0 actually renders, not with printCanvas's outer edge
 // (CRITICAL FIX 7) — one shared coordinate origin instead of two
 // independently-guessed offsets.
-export const PAGE_ORIGIN_OFFSET_PX = 1;
+export const PAGE_ORIGIN_OFFSET_PX = 22;
 
 export const styles = StyleSheet.create({
   safeArea: {
