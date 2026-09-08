@@ -2,12 +2,12 @@ import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { View } from "react-native";
 import Animated, { runOnJS, useAnimatedStyle, useSharedValue } from "react-native-reanimated";
 
-import type { Guide } from "@/types/project";
+import type { CanvasGuide } from "@/types/project";
 
 import { styles } from "./GuideLine.styles";
 
 interface GuideLineProps {
-  guide: Guide;
+  guide: CanvasGuide;
   // Page length in mm along the guide's OWN axis (widthMm for a
   // vertical guide, heightMm for a horizontal one) — the guide is
   // drawn spanning the full page in that direction.

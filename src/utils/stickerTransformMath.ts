@@ -120,6 +120,40 @@ export function computeCornerResizeDelta(
 }
 
 /**
+ * Given the rotation handle's cumulative drag translation (in display
+ * px, from the gesture's own event.translationX/Y — i.e. always
+ * relative to where the drag STARTED, not per-frame deltas) and the
+ * handle's rest vector from the sticker's center (in the unrotated
+ * frame — always straight up: (0, -(height/2 + ROTATE_HANDLE_GAP))),
+ * returns how many degrees the sticker has been rotated so far.
+ *
+ * The math: the rest vector plus the drag translation gives the
+ * handle's CURRENT vector from center; the signed angle between that
+ * and the rest vector (via atan2) is the rotation delta. This is a
+ * plain (worklet) function — extracted out of StickerItem.tsx per
+ * CRITICAL FIX 3, alongside the resize math above, so all of this
+ * component's transform geometry lives in one place — reused by both
+ * the live per-frame preview (onUpdate) and would be reused by any
+ * future non-gesture caller needing the same angle math.
+ */
+export function computeRotationDeltaDegrees(
+  translationX: number,
+  translationY: number,
+  restVectorX: number,
+  restVectorY: number,
+): number {
+  "worklet";
+
+  const restAngle = Math.atan2(restVectorY, restVectorX);
+  const currentVectorX = restVectorX + translationX;
+  const currentVectorY = restVectorY + translationY;
+  const currentAngle = Math.atan2(currentVectorY, currentVectorX);
+  const deltaRad = currentAngle - restAngle;
+
+  return (deltaRad * 180) / Math.PI;
+}
+
+/**
  * Clamps a sticker's committed position (NOT size) so it stays fully
  * inside the page: xMm/yMm >= 0, and xMm+widthMm / yMm+heightMm never
  * exceed the canvas size. Used after a move or resize commits.

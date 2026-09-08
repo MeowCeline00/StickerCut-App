@@ -57,13 +57,23 @@ export const styles = StyleSheet.create({
     fontFamily: 'monospace',
     color: Colors.textSecondary,
   },
+  // Centered ON the tick line, not offset to the right of it (CRITICAL
+  // FIX 7) — the label is given a fixed width wider than any value it
+  // will realistically show ("0" through 3-digit mm values) and shifted
+  // left by half of it, with textAlign:'center', so the tick's own left
+  // edge (0 offset from the wrapper, which is already positioned at the
+  // tick's real display px) lands under the middle of the text
+  // regardless of how many digits it has.
   tickLabelHorizontal: {
-    top: 2,
-    left: 2,
+    top: 3,
+    left: -14,
+    width: 28,
+    textAlign: 'center',
   },
   tickLabelVertical: {
-    left: 2,
-    top: 2,
-    transform: [{ rotate: '0deg' }],
+    // Vertically centers the label on its tick's horizontal line —
+    // half the label's own line height above the tick's top:0 position.
+    top: -5,
+    left: 3,
   },
 });

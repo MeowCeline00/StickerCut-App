@@ -5,10 +5,10 @@ import Animated, { runOnJS, useAnimatedStyle, useSharedValue } from "react-nativ
 
 import type { StickerObject } from "@/types/sticker";
 import { MIN_STICKER_MM } from "@/utils/stickers";
-import { computeCornerResizeDelta } from "@/utils/stickerTransformMath";
+import { computeCornerResizeDelta, computeRotationDeltaDegrees } from "@/utils/stickerTransformMath";
 import { calculateSourcePpi, mmToDisplay } from "@/utils/units";
 
-import { CutLinePreview, SelectionBadges, SelectionHandles } from "./StickerSelectionOverlay";
+import { CutLinePreview, SelectionBadges, SelectionHandles } from "./StickerTransformOverlay";
 import { styles } from "./StickerItem.styles";
 
 // The visible CAD handle is intentionally small, but the gesture target is
@@ -46,7 +46,15 @@ interface StickerItemProps {
   // sticker so they all convert their mm geometry the same way.
   editorScale: number;
   selected: boolean;
-  onSelect: (id: string) => void;
+  // The "tap to select" gesture for THIS sticker, created by the
+  // parent editor screen (not here) — see editor.tsx's
+  // stickerSelectGestureById / canvasDeselectGesture for why: the
+  // page's deselect-on-empty-tap gesture has to call
+  // .requireExternalGestureToFail(...) against every sticker's select
+  // gesture, which requires both gesture objects to exist in the same
+  // scope. This component still owns and races its own move (Pan)
+  // gesture against it.
+  selectGesture: ReturnType<typeof Gesture.Tap>;
   // Called once, when a drag finishes, with the physical distance
   // moved in mm — not on every frame. The editor screen owns
   // project state, so it applies the delta to the sticker's stored
@@ -85,13 +93,15 @@ interface StickerItemProps {
  * on-screen pixels for display, so print output never depends on any
  * particular phone's screen size.
  *
- * This file owns image rendering, geometry-to-pixels conversion,
- * selection state, and all gesture wiring. The actual JSX for the
- * selection border/labels and the resize/rotate handles lives in
- * StickerSelectionOverlay.tsx (presentational only — no gesture or
- * geometry logic of its own), and the corner-resize math lives in
- * utils/stickerTransformMath.ts (a plain worklet function, reused by
- * both the live per-frame preview and the on-release commit below).
+ * This file owns image rendering, the main move gesture, and selection
+ * (CRITICAL FIX 3's split). The actual JSX for the selection
+ * border/labels and the resize/rotate handles lives in
+ * StickerTransformOverlay.tsx (presentational only — no gesture or
+ * geometry logic of its own), and ALL of the resize- and
+ * rotation-handle geometry lives in utils/stickerTransformMath.ts (plain
+ * worklet functions, reused by both the live per-frame preview and the
+ * on-release commit below) — this file only wires gestures to those
+ * functions, it doesn't do the angle/anchor math itself.
  *
  * Layout is three nested layers, from outside in:
  *  - interactionRoot: a plain, non-animated View sized to the
@@ -132,7 +142,7 @@ export function StickerItem({
   sticker,
   editorScale,
   selected,
-  onSelect,
+  selectGesture,
   onMove,
   onResize,
   onRotate,
@@ -187,16 +197,13 @@ export function StickerItem({
   const showTransformHandles = selected && interactionMode === "transform";
   const showCutLinePreview = selected && interactionMode === "cutLine";
 
-  // A tap always selects. A drag only moves the sticker once it's
-  // already selected — Gesture.Race lets a quick, still tap win
-  // immediately, while a finger that moves past the Pan gesture's
-  // own activation distance hands the gesture to Pan instead. That
-  // is what stops "tap to select" and "drag to move" from fighting
+  // selectGesture (created by the parent, see the prop doc above) always
+  // selects on a quick, still tap. A drag only moves the sticker once
+  // it's already selected — Gesture.Race lets the tap win immediately
+  // for a stationary touch, while a finger that moves past the Pan
+  // gesture's own activation distance hands the gesture to Pan instead.
+  // That is what stops "tap to select" and "drag to move" from fighting
   // over the same touch.
-  const tapGesture = Gesture.Tap().onEnd(() => {
-    runOnJS(onSelect)(sticker.id);
-  });
-
   const panGesture = Gesture.Pan()
     .enabled(selected)
     .onChange((event) => {
@@ -211,7 +218,7 @@ export function StickerItem({
       runOnJS(onMove)(sticker.id, deltaXMm, deltaYMm);
     });
 
-  const moveGesture = Gesture.Race(tapGesture, panGesture);
+  const moveGesture = Gesture.Race(selectGesture, panGesture);
 
   // Every corner's gesture follows the same shape: accumulate the raw
   // finger movement, then on release run it through
@@ -342,15 +349,15 @@ export function StickerItem({
   // of the three can ever fire from the same touch.
   const restVectorX = 0;
   const restVectorY = -(height / 2 + ROTATE_HANDLE_GAP);
-  const restAngle = Math.atan2(restVectorY, restVectorX);
 
   const rotateGesture = Gesture.Pan()
     .onUpdate((event) => {
-      const currentVectorX = restVectorX + event.translationX;
-      const currentVectorY = restVectorY + event.translationY;
-      const currentAngle = Math.atan2(currentVectorY, currentVectorX);
-      const deltaRad = currentAngle - restAngle;
-      liveRotationDelta.value = (deltaRad * 180) / Math.PI;
+      liveRotationDelta.value = computeRotationDeltaDegrees(
+        event.translationX,
+        event.translationY,
+        restVectorX,
+        restVectorY,
+      );
     })
     .onEnd(() => {
       const deltaDegrees = liveRotationDelta.value;

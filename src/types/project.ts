@@ -19,7 +19,7 @@ export interface StickerProject {
    * Optional/additive so projects saved before guides existed still
    * load with none.
    */
-  guides?: Guide[];
+  guides?: CanvasGuide[];
 
   /**
    * Interface theme chosen at project creation (see new-project.tsx).
@@ -32,7 +32,8 @@ export interface StickerProject {
 
 export type ThemeId = "dark" | "light" | "pink";
 
-export interface Guide {
+// Renamed from Guide to CanvasGuide (CRITICAL FIX 8) — same shape.
+export interface CanvasGuide {
   id: string;
 
   /**

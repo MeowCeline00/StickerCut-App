@@ -2,6 +2,17 @@ import { StyleSheet } from 'react-native';
 
 import { Colors } from '@/constants/colors';
 
+// The page's own border stroke (see printCanvas below) sits OUTSIDE the
+// actual mm=0 content origin: children positioned at left:0/top:0 render
+// inset by this many px from printCanvas's outer edge, because Yoga lays
+// out absolutely-positioned children relative to the parent's padding
+// box, not its border box. CanvasRuler.tsx imports this same constant to
+// offset every tick position by it, so the ruler's zero tick lines up
+// with where mm=0 actually renders, not with printCanvas's outer edge
+// (CRITICAL FIX 7) — one shared coordinate origin instead of two
+// independently-guessed offsets.
+export const PAGE_ORIGIN_OFFSET_PX = 1;
+
 export const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
@@ -88,10 +99,12 @@ export const styles = StyleSheet.create({
     alignItems: 'center',
   },
 
-  // 2x2 grid: [cornerSpacer, topRuler] / [leftRuler, page]. Ruler-zero
-  // is structurally guaranteed to line up with the page's own
-  // top-left corner because the ruler and page rows/columns share the
-  // exact same widths/heights — no separate centering-offset math.
+  // 2x2 grid: [cornerSpacer, topRuler] / [leftRuler, page]. The ruler
+  // and page rows/columns share the exact same widths/heights, so the
+  // ruler CONTAINER'S outer edge lines up with the page's outer edge —
+  // but the page's real mm=0 origin sits PAGE_ORIGIN_OFFSET_PX inside
+  // that (see the constant above), which is why CanvasRuler.tsx also
+  // shifts every tick position by that same constant (CRITICAL FIX 7).
   rulerGridRow: {
     flexDirection: 'row',
   },
@@ -108,7 +121,7 @@ export const styles = StyleSheet.create({
 
   printCanvas: {
     position: 'relative',
-    borderWidth: 1,
+    borderWidth: PAGE_ORIGIN_OFFSET_PX,
     borderColor: Colors.borderBright,
     overflow: 'hidden',
   },
@@ -125,6 +138,28 @@ export const styles = StyleSheet.create({
     flex: 1,
     flexDirection: 'row',
     flexWrap: 'wrap',
+  },
+
+  // Live drag preview for a guide not yet released (CRITICAL FIX 8) —
+  // dashed so it reads as "not committed yet" at a glance, distinct
+  // from a real GuideLine's solid line.
+  draftGuideHorizontal: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    height: 0,
+    borderTopWidth: 1,
+    borderStyle: 'dashed',
+    borderColor: Colors.accentBright,
+  },
+  draftGuideVertical: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    width: 0,
+    borderLeftWidth: 1,
+    borderStyle: 'dashed',
+    borderColor: Colors.accentBright,
   },
 
   checkerCell: {
