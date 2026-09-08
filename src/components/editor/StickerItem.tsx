@@ -1,20 +1,15 @@
 import { Image } from "expo-image";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
-import { Text, View } from "react-native";
+import { View } from "react-native";
 import Animated, { runOnJS, useAnimatedStyle, useSharedValue } from "react-native-reanimated";
 
-import { DEFAULT_CUT_LINE_COLOR, DEFAULT_CUT_LINE_SHAPE } from "@/constants/cut-line";
 import type { StickerObject } from "@/types/sticker";
 import { MIN_STICKER_MM } from "@/utils/stickers";
+import { computeCornerResizeDelta } from "@/utils/stickerTransformMath";
 import { calculateSourcePpi, mmToDisplay } from "@/utils/units";
 
+import { CutLinePreview, SelectionBadges, SelectionHandles } from "./StickerSelectionOverlay";
 import { styles } from "./StickerItem.styles";
-
-// Below this, print quality visibly suffers because the source
-// image has fewer pixels than the print size needs. This is a
-// starting heuristic (typical home/label printers resolve
-// somewhere around 150-300 PPI), not a hard technical limit.
-const LOW_PPI_WARNING_THRESHOLD = 150;
 
 // The visible CAD handle is intentionally small, but the gesture target is
 // larger so it remains usable on a touch screen (see
@@ -40,117 +35,10 @@ const RESIZE_TOUCH_TARGET_MARGIN = RESIZE_TOUCH_TARGET_SIZE / 2 + 2;
 // The rotation handle sits above the box's top edge by this many
 // display px, and shares the same touch-target size as the corner
 // handles for a consistent, finger-friendly hit area. Placed
-// top-center (a common "rotate stick" pattern) rather than the
-// reference screenshot's bottom-right position, so it never collides
-// with the bottom-right resize handle or the delete button.
+// top-center (a common "rotate stick" pattern) rather than the Figma
+// reference's bottom-right position, so it never collides with the
+// bottom-right resize handle.
 const ROTATE_HANDLE_GAP = 30;
-
-type Corner = "topLeft" | "topRight" | "bottomLeft" | "bottomRight";
-
-/**
- * Given one corner's raw finger movement (in display px), returns how much
- * the sticker's box should change — as deltas from its current committed
- * box — to resize from that corner while keeping the OPPOSITE corner
- * anchored. When aspectLocked is true the image's aspect ratio is
- * preserved (Phase 4/5 of the original resize fix); when false, width
- * and height change independently from the raw dx/dy. Dragging is
- * reduced to a single scale factor in the locked case, taken from
- * whichever axis (width or height) the finger actually moved further
- * along proportionally.
- *
- * This is a plain (worklet) function, not a hook, so all four corners
- * can share one implementation instead of four near-duplicates.
- */
-function computeCornerResizeDelta(
-  corner: Corner,
-  dx: number,
-  dy: number,
-  committedWidth: number,
-  committedHeight: number,
-  aspectRatio: number,
-  minSizePx: number,
-  aspectLocked: boolean,
-): { deltaLeft: number; deltaTop: number; deltaWidth: number; deltaHeight: number } {
-  "worklet";
-
-  // A stationary "tap" on the handle (no movement at all) must resize
-  // nothing. Without this early exit, floating-point rounding between
-  // the stored aspectRatio and the sticker's actual current width/height
-  // ratio could otherwise nudge the size by a hair on every tap.
-  if (dx === 0 && dy === 0) {
-    return { deltaLeft: 0, deltaTop: 0, deltaWidth: 0, deltaHeight: 0 };
-  }
-
-  let rawWidth = committedWidth;
-  let rawHeight = committedHeight;
-
-  if (corner === "bottomRight") {
-    rawWidth = committedWidth + dx;
-    rawHeight = committedHeight + dy;
-  } else if (corner === "bottomLeft") {
-    rawWidth = committedWidth - dx;
-    rawHeight = committedHeight + dy;
-  } else if (corner === "topRight") {
-    rawWidth = committedWidth + dx;
-    rawHeight = committedHeight - dy;
-  } else {
-    rawWidth = committedWidth - dx;
-    rawHeight = committedHeight - dy;
-  }
-
-  let newWidth: number;
-  let newHeight: number;
-
-  if (aspectLocked) {
-    // Whichever axis moved further, proportionally, drives the resize;
-    // the other dimension is derived from it via the locked aspect ratio.
-    const widthRatio = Math.abs(rawWidth - committedWidth) / committedWidth;
-    const heightRatio = Math.abs(rawHeight - committedHeight) / committedHeight;
-
-    if (widthRatio >= heightRatio) {
-      newWidth = rawWidth;
-      newHeight = newWidth / aspectRatio;
-    } else {
-      newHeight = rawHeight;
-      newWidth = newHeight * aspectRatio;
-    }
-  } else {
-    // Free resize: width and height change independently.
-    newWidth = rawWidth;
-    newHeight = rawHeight;
-  }
-
-  // MIN_STICKER_MM floor, applied without breaking the aspect ratio
-  // when locked; independently per axis when free.
-  if (aspectLocked) {
-    if (newWidth < minSizePx) {
-      newWidth = minSizePx;
-      newHeight = minSizePx / aspectRatio;
-    }
-    if (newHeight < minSizePx) {
-      newHeight = minSizePx;
-      newWidth = minSizePx * aspectRatio;
-    }
-  } else {
-    newWidth = Math.max(minSizePx, newWidth);
-    newHeight = Math.max(minSizePx, newHeight);
-  }
-
-  const deltaWidth = newWidth - committedWidth;
-  const deltaHeight = newHeight - committedHeight;
-
-  // Corner resizing keeps the opposite corner anchored: only the two
-  // corners whose OWN edge is left (topLeft/bottomLeft) or top
-  // (topLeft/topRight) shift the box's position — the other edges stay
-  // put, which is what "anchored" means here. Because the project model
-  // is xMm/yMm/widthMm/heightMm (not screen pixels), the caller converts
-  // deltaLeft/deltaTop into deltaXMm/deltaYMm the same way it converts
-  // deltaWidth/deltaHeight — see onResize below.
-  const deltaLeft = corner === "topLeft" || corner === "bottomLeft" ? -deltaWidth : 0;
-  const deltaTop = corner === "topLeft" || corner === "topRight" ? -deltaHeight : 0;
-
-  return { deltaLeft, deltaTop, deltaWidth, deltaHeight };
-}
 
 interface StickerItemProps {
   sticker: StickerObject;
@@ -162,8 +50,9 @@ interface StickerItemProps {
   // Called once, when a drag finishes, with the physical distance
   // moved in mm — not on every frame. The editor screen owns
   // project state, so it applies the delta to the sticker's stored
-  // xMm/yMm and autosaves; this component never mutates geometry
-  // itself, it only reports what the user's finger did.
+  // xMm/yMm (and clamps it to the page) and autosaves; this
+  // component never mutates geometry itself, it only reports what
+  // the user's finger did.
   onMove: (id: string, deltaXMm: number, deltaYMm: number) => void;
   // Same pattern as onMove, but for a corner resize handle: reports
   // the physical size change AND, for a top/left-anchored corner,
@@ -189,33 +78,38 @@ interface StickerItemProps {
 }
 
 /**
- * Renders one sticker on the editor canvas. Permanent geometry
- * (xMm/yMm/widthMm/heightMm/rotation) lives in millimeters on the
- * StickerObject — this component only converts to on-screen pixels
- * for display, so print output never depends on any particular
- * phone's screen size. Project dimensions remain in millimeters;
- * display pixels exist only for interaction/rendering.
+ * Renders one sticker on the editor canvas and owns every gesture that
+ * can change its geometry (move, four-corner resize, rotate).
+ * Permanent geometry (xMm/yMm/widthMm/heightMm/rotation) lives in
+ * millimeters on the StickerObject — this component only converts to
+ * on-screen pixels for display, so print output never depends on any
+ * particular phone's screen size.
+ *
+ * This file owns image rendering, geometry-to-pixels conversion,
+ * selection state, and all gesture wiring. The actual JSX for the
+ * selection border/labels and the resize/rotate handles lives in
+ * StickerSelectionOverlay.tsx (presentational only — no gesture or
+ * geometry logic of its own), and the corner-resize math lives in
+ * utils/stickerTransformMath.ts (a plain worklet function, reused by
+ * both the live per-frame preview and the on-release commit below).
  *
  * Layout is three nested layers, from outside in:
  *  - interactionRoot: a plain, non-animated View sized to the
  *    sticker's committed box PLUS RESIZE_TOUCH_TARGET_MARGIN on every
- *    side. It exists solely so a corner handle's touch target has
- *    real native bounds to be touched within — see the comment on
- *    RESIZE_TOUCH_TARGET_MARGIN for why that's necessary on Android.
+ *    side (see the comment on RESIZE_TOUCH_TARGET_MARGIN above).
  *  - visualBox: the actual sticker — image, selection border, and
- *    dimension label — positioned at a fixed (RESIZE_TOUCH_TARGET_MARGIN,
- *    RESIZE_TOUCH_TARGET_MARGIN) offset inside interactionRoot. Its
- *    live position/size/rotation while dragging comes from Reanimated
- *    shared values (see below); its resting position/size/rotation
- *    comes straight from the committed sticker prop.
+ *    dimension label — positioned at a fixed offset inside
+ *    interactionRoot. Its live position/size/rotation while dragging
+ *    comes from Reanimated shared values; its resting values come
+ *    straight from the committed sticker prop.
  *  - corner touch targets + a rotation touch target, siblings of
- *    visualBox: each one owns a single Pan gesture. Rendering them
- *    AFTER visualBox in JSX (so they stack on top of it) is what
- *    keeps a touch that lands in a handle's small overlap zone from
- *    also being claimed by visualBox's own move gesture underneath —
- *    a "separated gesture region" rather than an explicit
- *    Gesture.Exclusive relationship, since the two never need to
- *    negotiate over the same touch in the first place.
+ *    visualBox (rendered via SelectionHandles): each owns a single Pan
+ *    gesture. Rendering them AFTER visualBox in JSX (so they stack on
+ *    top of it) is what keeps a touch landing in a handle's small
+ *    overlap zone from also being claimed by visualBox's own move
+ *    gesture underneath — a "separated gesture region" rather than an
+ *    explicit Gesture.Exclusive relationship, since the two never need
+ *    to negotiate over the same touch in the first place.
  *
  * Resize/rotate geometry is previewed on the UI thread and committed
  * to project geometry only when the gesture ends — the *live* drag
@@ -232,9 +126,7 @@ interface StickerItemProps {
  * actually rotates. This keeps the resize math simple — dragging a
  * corner still resizes correctly — but on a heavily rotated sticker
  * the handles will visually sit at the unrotated bounding box's
- * corners rather than the rotated artwork's corners. This is the same
- * "basic bounding box approximation" the project has already accepted
- * for rotated-sticker page clamping.
+ * corners rather than the rotated artwork's corners.
  */
 export function StickerItem({
   sticker,
@@ -264,13 +156,11 @@ export function StickerItem({
   const outerHeight = height + RESIZE_TOUCH_TARGET_MARGIN * 2 + ROTATE_HANDLE_GAP;
 
   // processedUri (e.g. after background removal) is preferred for
-  // display, but sourceUri is never overwritten — see BACKGROUND
-  // REMOVAL note on the badge below.
+  // display, but sourceUri is never overwritten.
   const imageUri = sticker.processedUri ?? sticker.sourceUri;
 
-  // Derived on demand from stored geometry rather than cached on
-  // the sticker, so it's automatically correct after a resize —
-  // see utils/units.ts's calculateSourcePpi for why.
+  // Derived on demand from stored geometry rather than cached on the
+  // sticker, so it's automatically correct after a resize.
   const sourcePpi = calculateSourcePpi(sticker.originalWidthPx, sticker.widthMm);
 
   const dragTranslateX = useSharedValue(0);
@@ -329,7 +219,10 @@ export function StickerItem({
   // aspectLocked, aspect-ratio-correct) result, convert that from
   // display px to mm, report it, and reset back to 0 (the next
   // render's "committed" width/height/xMm/yMm already includes what
-  // was just committed).
+  // was just committed). The move gesture above is a completely
+  // separate GestureDetector on a completely separate view (visualBox
+  // vs. these touch targets), so a resize drag can never also move
+  // the sticker's body.
   const resizeTopLeftGesture = Gesture.Pan()
     .onChange((event) => {
       resizeTopLeftDX.value += event.changeX;
@@ -443,21 +336,15 @@ export function StickerItem({
   // always straight up — (0, -(height/2 + ROTATE_HANDLE_GAP)). During
   // the drag, adding the gesture's cumulative translation to that
   // rest vector gives the touch's current vector from center; the
-  // angle between that and the rest vector is how far the sticker
-  // has been rotated. This avoids needing the box's absolute screen
-  // position (which Reanimated worklets can't cheaply measure) at
-  // the cost of assuming the finger touches down close to the
-  // handle's drawn position, which is true in practice.
+  // angle between that and the rest vector is how far the sticker has
+  // been rotated. This is a completely separate gesture/touch target
+  // from both the move gesture and the four resize gestures, so none
+  // of the three can ever fire from the same touch.
   const restVectorX = 0;
   const restVectorY = -(height / 2 + ROTATE_HANDLE_GAP);
   const restAngle = Math.atan2(restVectorY, restVectorX);
 
   const rotateGesture = Gesture.Pan()
-    .onChange(() => {
-      // no-op: angle is computed from cumulative translation in
-      // onUpdate below via event.translationX/Y, not incremental
-      // change, so nothing needs accumulating here.
-    })
     .onUpdate((event) => {
       const currentVectorX = restVectorX + event.translationX;
       const currentVectorY = restVectorY + event.translationY;
@@ -557,9 +444,7 @@ export function StickerItem({
   // finger. The other three handles intentionally do not animate
   // live during a resize; they snap to their correct new corner once
   // the gesture ends and the component re-renders from the new
-  // committed geometry. Animating all four correctly (two of them
-  // only move along one axis, following the locked aspect ratio)
-  // would need meaningfully more code for a purely cosmetic gain.
+  // committed geometry.
   const topLeftHandleStyle = useAnimatedStyle(() => ({
     transform: [
       { translateX: dragTranslateX.value + resizeTopLeftDX.value },
@@ -586,8 +471,7 @@ export function StickerItem({
   }));
 
   // The rotation handle only tracks the whole-sticker move — it isn't
-  // meant to visually spin around during its own drag (a fixed handle
-  // you drag sideways/around is the standard pattern), it just needs
+  // meant to visually spin around during its own drag, it just needs
   // to stay attached to the box while the box is being repositioned.
   const rotateHandleStyle = useAnimatedStyle(() => ({
     transform: [
@@ -597,9 +481,6 @@ export function StickerItem({
   }));
 
   const halfTouchTarget = RESIZE_TOUCH_TARGET_SIZE / 2;
-
-  const cutLineShape = sticker.cutLine.shape ?? DEFAULT_CUT_LINE_SHAPE;
-  const cutLineColor = sticker.cutLine.color ?? DEFAULT_CUT_LINE_COLOR;
 
   return (
     <View
@@ -625,134 +506,31 @@ export function StickerItem({
           <Image source={{ uri: imageUri }} style={styles.image} contentFit="contain" />
 
           {selected && interactionMode === "transform" && (
-            <View style={styles.selectionOverlay} pointerEvents="none">
-              <View style={styles.dimensionLabel}>
-                <Text style={styles.dimensionLabelText}>
-                  {sticker.widthMm.toFixed(1)} × {sticker.heightMm.toFixed(1)} mm
-                  {sourcePpi !== null && (
-                    <Text
-                      style={
-                        sourcePpi < LOW_PPI_WARNING_THRESHOLD ? styles.dimensionLabelWarning : undefined
-                      }
-                    >
-                      {"  ·  "}
-                      {Math.round(sourcePpi)} PPI
-                      {sourcePpi < LOW_PPI_WARNING_THRESHOLD ? " (low)" : ""}
-                    </Text>
-                  )}
-                </Text>
-
-                <Text style={styles.dimensionLabelText}>{Math.round(sticker.rotation)}°</Text>
-
-                {/* Background removal isn't implemented yet — this
-                    always reads ORIGINAL BG today. It's shown
-                    unconditionally, honestly, rather than leaving you
-                    guessing whether it silently ran. */}
-                <Text style={styles.backgroundBadgeText}>
-                  {sticker.backgroundRemoved ? "BG REMOVED" : "ORIGINAL BG"}
-                </Text>
-              </View>
-            </View>
+            <SelectionBadges sticker={sticker} sourcePpi={sourcePpi} />
           )}
 
-          {showCutLinePreview && (
-            // Honest approximation: a colored outline in the chosen
-            // shape/color, NOT a real traced contour. Real cut-path
-            // generation (especially "tight" alpha-channel tracing) is
-            // a separate, later algorithm pass.
-            <View
-              pointerEvents="none"
-              style={[
-                styles.cutLinePreviewOverlay,
-                cutLineShape === "rect" ? styles.cutLinePreviewRect : styles.cutLinePreviewRound,
-                { borderColor: cutLineColor },
-              ]}
-            />
-          )}
+          {showCutLinePreview && <CutLinePreview sticker={sticker} />}
         </Animated.View>
       </GestureDetector>
 
-      {/* Rendered after (so stacked on top of) visualBox — see the
-          "separated gesture region" note in the component doc comment
-          above for why that ordering is what keeps these from
-          competing with the move gesture for the same touch. */}
       {showTransformHandles && (
-        <>
-          <GestureDetector gesture={resizeTopLeftGesture}>
-            <Animated.View
-              style={[
-                styles.resizeTouchTarget,
-                {
-                  left: RESIZE_TOUCH_TARGET_MARGIN - halfTouchTarget,
-                  top: RESIZE_TOUCH_TARGET_MARGIN + ROTATE_HANDLE_GAP - halfTouchTarget,
-                },
-                topLeftHandleStyle,
-              ]}
-            >
-              <View style={styles.resizeHandleVisual} pointerEvents="none" />
-            </Animated.View>
-          </GestureDetector>
-
-          <GestureDetector gesture={resizeTopRightGesture}>
-            <Animated.View
-              style={[
-                styles.resizeTouchTarget,
-                {
-                  left: RESIZE_TOUCH_TARGET_MARGIN + width - halfTouchTarget,
-                  top: RESIZE_TOUCH_TARGET_MARGIN + ROTATE_HANDLE_GAP - halfTouchTarget,
-                },
-                topRightHandleStyle,
-              ]}
-            >
-              <View style={styles.resizeHandleVisual} pointerEvents="none" />
-            </Animated.View>
-          </GestureDetector>
-
-          <GestureDetector gesture={resizeBottomLeftGesture}>
-            <Animated.View
-              style={[
-                styles.resizeTouchTarget,
-                {
-                  left: RESIZE_TOUCH_TARGET_MARGIN - halfTouchTarget,
-                  top: RESIZE_TOUCH_TARGET_MARGIN + ROTATE_HANDLE_GAP + height - halfTouchTarget,
-                },
-                bottomLeftHandleStyle,
-              ]}
-            >
-              <View style={styles.resizeHandleVisual} pointerEvents="none" />
-            </Animated.View>
-          </GestureDetector>
-
-          <GestureDetector gesture={resizeBottomRightGesture}>
-            <Animated.View
-              style={[
-                styles.resizeTouchTarget,
-                {
-                  left: RESIZE_TOUCH_TARGET_MARGIN + width - halfTouchTarget,
-                  top: RESIZE_TOUCH_TARGET_MARGIN + ROTATE_HANDLE_GAP + height - halfTouchTarget,
-                },
-                bottomRightHandleStyle,
-              ]}
-            >
-              <View style={styles.resizeHandleVisual} pointerEvents="none" />
-            </Animated.View>
-          </GestureDetector>
-
-          <GestureDetector gesture={rotateGesture}>
-            <Animated.View
-              style={[
-                styles.resizeTouchTarget,
-                {
-                  left: RESIZE_TOUCH_TARGET_MARGIN + width / 2 - halfTouchTarget,
-                  top: RESIZE_TOUCH_TARGET_MARGIN - halfTouchTarget,
-                },
-                rotateHandleStyle,
-              ]}
-            >
-              <View style={styles.rotateHandleVisual} pointerEvents="none" />
-            </Animated.View>
-          </GestureDetector>
-        </>
+        <SelectionHandles
+          width={width}
+          height={height}
+          resizeTouchTargetMargin={RESIZE_TOUCH_TARGET_MARGIN}
+          rotateHandleGap={ROTATE_HANDLE_GAP}
+          halfTouchTarget={halfTouchTarget}
+          topLeftHandleStyle={topLeftHandleStyle}
+          topRightHandleStyle={topRightHandleStyle}
+          bottomLeftHandleStyle={bottomLeftHandleStyle}
+          bottomRightHandleStyle={bottomRightHandleStyle}
+          rotateHandleStyle={rotateHandleStyle}
+          resizeTopLeftGesture={resizeTopLeftGesture}
+          resizeTopRightGesture={resizeTopRightGesture}
+          resizeBottomLeftGesture={resizeBottomLeftGesture}
+          resizeBottomRightGesture={resizeBottomRightGesture}
+          rotateGesture={rotateGesture}
+        />
       )}
     </View>
   );

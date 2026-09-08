@@ -22,7 +22,7 @@ import { runOnJS } from "react-native-reanimated";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { CanvasRuler } from "@/components/editor/CanvasRuler";
-import { ExportSheet } from "@/components/editor/ExportSheet";
+import { GuideLine } from "@/components/editor/GuideLine";
 import { StickerItem } from "@/components/editor/StickerItem";
 
 import { CANVAS_COLOR_SWATCHES, DEFAULT_CANVAS_COLOR } from "@/constants/canvas-colors";
@@ -46,11 +46,12 @@ import { getProject, saveProject } from "@/storage/projectStorage";
 import { styles } from "@/styles/editor.styles";
 
 import type { StickerObject } from "@/types/sticker";
-import type { StickerProject } from "@/types/project";
+import type { Guide, StickerProject } from "@/types/project";
 
 import { createId } from "@/utils/ids";
 import { getImageDimensions } from "@/utils/imageDimensions";
 import { computeDefaultStickerSizeMm, getNextZIndex, MIN_STICKER_MM } from "@/utils/stickers";
+import { clampStickerPositionMm } from "@/utils/stickerTransformMath";
 import { calculateEditorScale, mmToDisplay } from "@/utils/units";
 
 // Editor-only chrome (rulers, tab panel, header) never contributes to
@@ -80,7 +81,6 @@ export default function EditorScreen() {
   const [selectedStickerId, setSelectedStickerId] = useState<string | null>(null);
   const [isImporting, setIsImporting] = useState(false);
   const [activeTab, setActiveTab] = useState<EditorTab>("canvas");
-  const [exportSheetVisible, setExportSheetVisible] = useState(false);
 
   useEffect(() => {
     initialiseProject();
@@ -139,11 +139,37 @@ export default function EditorScreen() {
   }
 
   /**
+   * Preview loads the project fresh, by id, from storage (see
+   * preview.tsx) — so the current in-memory state has to actually be
+   * saved first, or a brand-new/just-edited project would open an
+   * empty or stale preview. Errors are surfaced rather than silently
+   * navigating to a preview that won't match what's on screen.
+   */
+  async function handlePreview() {
+    if (!project) {
+      return;
+    }
+
+    try {
+      await saveProject(project);
+    } catch {
+      Alert.alert(
+        "Couldn't open preview",
+        "StickerCut couldn't save this project, so Preview would show stale or missing content.",
+      );
+      return;
+    }
+
+    router.push({ pathname: "/preview", params: { projectId: project.id } });
+  }
+
+  /**
    * Applies a finished drag-to-move gesture. Called once, when the
    * finger lifts (see StickerItem.tsx) — never per-frame — with the
    * physical distance moved in mm. A no-op delta (a tap that never
    * became a drag) is skipped so tapping a sticker doesn't trigger
-   * an unnecessary autosave.
+   * an unnecessary autosave. The result is clamped to the page:
+   * xMm/yMm >= 0 and xMm+widthMm/yMm+heightMm <= canvas size.
    */
   function handleStickerMove(id: string, deltaXMm: number, deltaYMm: number) {
     if (!project || (deltaXMm === 0 && deltaYMm === 0)) {
@@ -152,11 +178,22 @@ export default function EditorScreen() {
 
     const updatedProject: StickerProject = {
       ...project,
-      stickers: project.stickers.map((sticker) =>
-        sticker.id === id
-          ? { ...sticker, xMm: sticker.xMm + deltaXMm, yMm: sticker.yMm + deltaYMm }
-          : sticker,
-      ),
+      stickers: project.stickers.map((sticker) => {
+        if (sticker.id !== id) {
+          return sticker;
+        }
+
+        const clamped = clampStickerPositionMm(
+          sticker.xMm + deltaXMm,
+          sticker.yMm + deltaYMm,
+          sticker.widthMm,
+          sticker.heightMm,
+          project.canvas.widthMm,
+          project.canvas.heightMm,
+        );
+
+        return { ...sticker, xMm: clamped.xMm, yMm: clamped.yMm };
+      }),
     };
 
     setProject(updatedProject);
@@ -199,13 +236,19 @@ export default function EditorScreen() {
           return sticker;
         }
 
-        return {
-          ...sticker,
-          xMm: sticker.xMm + deltaXMm,
-          yMm: sticker.yMm + deltaYMm,
-          widthMm: Math.max(MIN_STICKER_MM, sticker.widthMm + deltaWidthMm),
-          heightMm: Math.max(MIN_STICKER_MM, sticker.heightMm + deltaHeightMm),
-        };
+        const widthMm = Math.max(MIN_STICKER_MM, sticker.widthMm + deltaWidthMm);
+        const heightMm = Math.max(MIN_STICKER_MM, sticker.heightMm + deltaHeightMm);
+
+        const clamped = clampStickerPositionMm(
+          sticker.xMm + deltaXMm,
+          sticker.yMm + deltaYMm,
+          widthMm,
+          heightMm,
+          project.canvas.widthMm,
+          project.canvas.heightMm,
+        );
+
+        return { ...sticker, xMm: clamped.xMm, yMm: clamped.yMm, widthMm, heightMm };
       }),
     };
 
@@ -397,6 +440,65 @@ export default function EditorScreen() {
     saveProject(updatedProject).catch(() => {
       // Manual Save is still available if this silent autosave fails.
     });
+  }
+
+  /**
+   * Adds a new reference guide, dragged out from the top ruler
+   * (axis "horizontal") or the left ruler (axis "vertical") — see
+   * CanvasRuler.tsx's onCreateGuide. positionMm is already clamped to
+   * the page there. Guides are editor-only: they live on
+   * project.guides and preview.tsx never reads that field, so they
+   * never appear in Preview or any future export.
+   */
+  function handleCreateGuide(axis: Guide["axis"], positionMm: number) {
+    if (!project) {
+      return;
+    }
+
+    const guide: Guide = { id: createId("guide"), axis, positionMm };
+
+    const updatedProject: StickerProject = {
+      ...project,
+      guides: [...(project.guides ?? []), guide],
+    };
+
+    setProject(updatedProject);
+    saveProject(updatedProject).catch(() => {});
+  }
+
+  function handleMoveGuide(id: string, positionMm: number) {
+    if (!project) {
+      return;
+    }
+
+    const updatedProject: StickerProject = {
+      ...project,
+      guides: (project.guides ?? []).map((guide) => {
+        if (guide.id !== id) {
+          return guide;
+        }
+
+        const maxMm = guide.axis === "horizontal" ? project.canvas.heightMm : project.canvas.widthMm;
+        return { ...guide, positionMm: Math.min(Math.max(0, positionMm), maxMm) };
+      }),
+    };
+
+    setProject(updatedProject);
+    saveProject(updatedProject).catch(() => {});
+  }
+
+  function handleDeleteGuide(id: string) {
+    if (!project) {
+      return;
+    }
+
+    const updatedProject: StickerProject = {
+      ...project,
+      guides: (project.guides ?? []).filter((guide) => guide.id !== id),
+    };
+
+    setProject(updatedProject);
+    saveProject(updatedProject).catch(() => {});
   }
 
   function handleSetBackground(background: "white" | "transparent") {
@@ -693,8 +795,8 @@ export default function EditorScreen() {
           </TouchableOpacity>
 
           {objectCount > 0 && (
-            <TouchableOpacity style={styles.doneButton} onPress={() => setExportSheetVisible(true)}>
-              <Text style={styles.doneButtonText}>Done →</Text>
+            <TouchableOpacity style={styles.doneButton} onPress={handlePreview}>
+              <Text style={styles.doneButtonText}>Preview →</Text>
             </TouchableOpacity>
           )}
         </View>
@@ -707,6 +809,7 @@ export default function EditorScreen() {
                 orientation="horizontal"
                 lengthMm={project.canvas.widthMm}
                 editorScale={editorScale}
+                onCreateGuide={(positionMm) => handleCreateGuide("horizontal", positionMm)}
               />
             </View>
 
@@ -715,6 +818,7 @@ export default function EditorScreen() {
                 orientation="vertical"
                 lengthMm={project.canvas.heightMm}
                 editorScale={editorScale}
+                onCreateGuide={(positionMm) => handleCreateGuide("vertical", positionMm)}
               />
 
               {/* Tapping the page itself (not a sticker) clears the
@@ -757,6 +861,19 @@ export default function EditorScreen() {
                       <Text style={styles.emptyCanvasText}>TAP + ADD OR PASTE</Text>
                     </View>
                   )}
+
+                  {(project.guides ?? []).map((guide) => (
+                    <GuideLine
+                      key={guide.id}
+                      guide={guide}
+                      pageLengthMm={
+                        guide.axis === "horizontal" ? project.canvas.widthMm : project.canvas.heightMm
+                      }
+                      editorScale={editorScale}
+                      onMove={handleMoveGuide}
+                      onDelete={handleDeleteGuide}
+                    />
+                  ))}
                 </View>
               </GestureDetector>
             </View>
@@ -1032,12 +1149,6 @@ export default function EditorScreen() {
           </View>
         )}
       </View>
-
-      <ExportSheet
-        visible={exportSheetVisible}
-        project={project}
-        onClose={() => setExportSheetVisible(false)}
-      />
     </SafeAreaView>
   );
 }
