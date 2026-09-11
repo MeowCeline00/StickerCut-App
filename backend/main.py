@@ -1,40 +1,76 @@
 """
 StickerCut local background-removal backend.
 
-A tiny, free, fully local FastAPI service that wraps rembg. It runs on
-your own machine, talks to no external API, and holds no API keys. The
-Expo app calls it over your local network during development.
+Free local FastAPI + rembg service.
 
 Endpoints:
-  GET  /health     -> {"status": "ok"}
-  POST /remove-bg   multipart/form-data, field name "image" -> PNG bytes
-                     (RGBA, background removed) as the raw response body
 
-Processing is in-memory only: uploaded bytes are never written to disk,
-and nothing is logged, analyzed, or sent anywhere else.
+GET /health
 
-Run with (see README.md for full setup):
-  uvicorn main:app --host 0.0.0.0 --port 8000
+POST /remove-bg
+    Existing multipart endpoint, useful for testing through FastAPI docs.
+
+POST /remove-bg-base64
+    React Native / Expo friendly endpoint.
+    Receives Base64 JSON and returns transparent PNG as Base64 JSON.
+
+No third-party paid API is used.
+Images are processed in memory and are not intentionally stored by
+the backend.
+
+Run:
+
+uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 """
 
+import base64
+import binascii
 import io
 import logging
+from typing import Optional
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import (
+    FastAPI,
+    File,
+    HTTPException,
+    UploadFile,
+)
+
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from PIL import Image
+from pydantic import BaseModel
 from rembg import new_session, remove
 
-logger = logging.getLogger("stickercut-backend")
-logging.basicConfig(level=logging.INFO)
 
-app = FastAPI(title="StickerCut background-removal backend")
+# ============================================================
+# LOGGING
+# ============================================================
 
-# Local development only: the Expo app on an emulator/simulator/physical
-# device is a different origin than this server, so CORS must be open.
-# This backend is meant to run on your own machine for your own app, not
-# to be deployed publicly.
+logger = logging.getLogger(
+    "stickercut-backend"
+)
+
+logging.basicConfig(
+    level=logging.INFO
+)
+
+
+# ============================================================
+# FASTAPI APP
+# ============================================================
+
+app = FastAPI(
+    title="StickerCut background-removal backend"
+)
+
+
+# Local development only.
+#
+# StickerCut running on the Android emulator has a different origin
+# from this FastAPI server, so allow local cross-origin requests.
+#
+# If this backend is ever publicly deployed, tighten this configuration.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -42,79 +78,319 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Building the rembg session is the slow part (it loads/initializes the
-# ONNX model), so it's done once here and reused for every request rather
-# than passing session=None and letting rembg build a fresh default
-# session per call (rembg.bg.remove() supports both — see its source).
-#
-# Model choice: rembg's own new_session() defaults to "bria-rmbg", a
-# newer, higher-quality model — but it also uses ~6 GB of RAM once
-# loaded, which is a lot to ask a general dev machine to keep resident
-# just for this. "u2net" is rembg's original, long-standing
-# general-purpose model: well-tested, much lighter (well under 1 GB
-# resident), and more than good enough for cutting stickers out of
-# typical photos. That tradeoff is why this picks it explicitly instead
-# of relying on rembg's own default.
+
+# ============================================================
+# CONFIG
+# ============================================================
+
+MAX_UPLOAD_BYTES = (
+    20 * 1024 * 1024
+)
+
+MODEL_NAME = "u2net"
+
+
+# ============================================================
+# REMBG SESSION
+# ============================================================
+
+# Loading the ONNX model is expensive, so keep ONE session alive
+# and reuse it for every request.
+
 _session = None
 
 
 @app.on_event("startup")
 def load_model() -> None:
     global _session
-    logger.info("Loading rembg model (first run may download weights)...")
-    _session = new_session("u2net")
-    logger.info("rembg model ready.")
+
+    logger.info(
+        "Loading rembg model "
+        "(first run may download weights)..."
+    )
+
+    _session = new_session(
+        MODEL_NAME
+    )
+
+    logger.info(
+        "rembg model ready."
+    )
 
 
-MAX_UPLOAD_BYTES = 20 * 1024 * 1024  # 20 MB
+# ============================================================
+# PYDANTIC MODELS
+# ============================================================
+
+
+class RemoveBgBase64Request(BaseModel):
+    imageBase64: str
+    mimeType: Optional[str] = None
+
+
+class RemoveBgBase64Response(BaseModel):
+    imageBase64: str
+    mimeType: str = "image/png"
+
+
+# ============================================================
+# SHARED IMAGE PROCESSING
+# ============================================================
+
+
+def process_image_bytes(
+    data: bytes,
+) -> bytes:
+    """
+    Validate image bytes and run rembg.
+
+    Used by BOTH:
+    - /remove-bg
+    - /remove-bg-base64
+    """
+
+    if _session is None:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Background-removal model "
+                "is still loading. "
+                "Try again shortly."
+            ),
+        )
+
+    if not data:
+        raise HTTPException(
+            status_code=400,
+            detail="Image is empty.",
+        )
+
+    if len(data) > MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Image is too large. "
+                "Maximum decoded size is 20 MB."
+            ),
+        )
+
+    # Validate image bytes before sending them to rembg.
+    try:
+        with Image.open(
+            io.BytesIO(data)
+        ) as probe:
+            probe.verify()
+
+    except Exception as exc:
+        logger.warning(
+            "Invalid image upload: %s",
+            exc,
+        )
+
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Could not read this file "
+                "as an image. "
+                "Try a different image."
+            ),
+        ) from exc
+
+    try:
+        output_bytes = remove(
+            data,
+            session=_session,
+        )
+
+    except Exception as exc:
+        logger.exception(
+            "rembg failed to process image"
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "Background removal failed "
+                "while processing this image."
+            ),
+        ) from exc
+
+    if not output_bytes:
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "Background removal returned "
+                "an empty image."
+            ),
+        )
+
+    return output_bytes
+
+
+# ============================================================
+# HEALTH CHECK
+# ============================================================
 
 
 @app.get("/health")
 def health() -> dict:
-    return {"status": "ok"}
+    return {
+        "status": "ok",
+        "model": MODEL_NAME,
+        "modelReady": (
+            _session is not None
+        ),
+    }
+
+
+# ============================================================
+# ORIGINAL MULTIPART ENDPOINT
+# ============================================================
+
+# Keep this because it is convenient for testing through:
+#
+# http://127.0.0.1:8000/docs
+#
+# StickerCut itself will NOT use this endpoint anymore.
 
 
 @app.post("/remove-bg")
-async def remove_bg(image: UploadFile = File(...)) -> Response:
-    if _session is None:
-        # Should not happen (startup hook runs before requests are
-        # served), but fail loudly rather than silently reinitializing
-        # per-request if it somehow does.
-        raise HTTPException(status_code=503, detail="Model is still loading. Try again shortly.")
+async def remove_bg(
+    image: UploadFile = File(...),
+) -> Response:
 
-    content_type = (image.content_type or "").lower()
-    if not content_type.startswith("image/"):
+    content_type = (
+        image.content_type or ""
+    ).lower()
+
+    if not content_type.startswith(
+        "image/"
+    ):
         raise HTTPException(
             status_code=400,
-            detail="Uploaded file is not an image (unexpected content type).",
+            detail=(
+                "Uploaded file is not "
+                "an image."
+            ),
         )
 
     data = await image.read()
 
-    if not data:
-        raise HTTPException(status_code=400, detail="Uploaded image is empty.")
+    output_bytes = (
+        process_image_bytes(data)
+    )
 
-    if len(data) > MAX_UPLOAD_BYTES:
-        raise HTTPException(status_code=400, detail="Image is too large (max 20 MB).")
+    return Response(
+        content=output_bytes,
+        media_type="image/png",
+    )
 
-    # Validate it's actually a decodable image before handing it to rembg,
-    # so a corrupt/unsupported file gets a clear 400 instead of a raw 500.
-    try:
-        with Image.open(io.BytesIO(data)) as probe:
-            probe.verify()
-    except Exception:
+
+# ============================================================
+# REACT NATIVE / EXPO BASE64 ENDPOINT
+# ============================================================
+
+
+@app.post(
+    "/remove-bg-base64",
+    response_model=(
+        RemoveBgBase64Response
+    ),
+)
+async def remove_bg_base64(
+    request:
+        RemoveBgBase64Request,
+) -> RemoveBgBase64Response:
+
+    image_base64 = (
+        request.imageBase64.strip()
+    )
+
+    if not image_base64:
         raise HTTPException(
             status_code=400,
-            detail="Could not read this file as an image. Try a different photo.",
+            detail=(
+                "No Base64 image data "
+                "was supplied."
+            ),
+        )
+
+    # Safety:
+    # StickerCut should send raw Base64,
+    # not:
+    #
+    # data:image/png;base64,...
+    #
+    # But tolerate a data URI just in case.
+    if image_base64.startswith(
+        "data:"
+    ):
+        comma_index = (
+            image_base64.find(",")
+        )
+
+        if comma_index < 0:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Invalid Base64 data URI."
+                ),
+            )
+
+        image_base64 = (
+            image_base64[
+                comma_index + 1:
+            ]
         )
 
     try:
-        output_bytes = remove(data, session=_session)
-    except Exception:
-        logger.exception("rembg failed to process an upload")
-        raise HTTPException(
-            status_code=500,
-            detail="Background removal failed while processing this image.",
+        input_bytes = (
+            base64.b64decode(
+                image_base64,
+                validate=True,
+            )
         )
 
-    return Response(content=output_bytes, media_type="image/png")
+    except (
+        binascii.Error,
+        ValueError,
+    ) as exc:
+
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Image Base64 data "
+                "is invalid."
+            ),
+        ) from exc
+
+    output_bytes = (
+        process_image_bytes(
+            input_bytes
+        )
+    )
+
+    output_base64 = (
+        base64.b64encode(
+            output_bytes
+        ).decode(
+            "ascii"
+        )
+    )
+
+    logger.info(
+        "Background removal complete: "
+        "input=%d bytes, "
+        "output=%d bytes",
+        len(input_bytes),
+        len(output_bytes),
+    )
+
+    return (
+        RemoveBgBase64Response(
+            imageBase64=(
+                output_base64
+            ),
+            mimeType="image/png",
+        )
+    )

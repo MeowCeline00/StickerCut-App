@@ -1,18 +1,11 @@
-// Background-removal processing adapter.
-//
-// StickerObject already models this correctly (sourceUri is never
-// overwritten; processedUri + backgroundRemoved carry the result), and
-// the Remove BG button in editor.tsx is wired to call this function.
-//
-// This calls a local, free background-removal backend (backend/, a
-// FastAPI + rembg server you run on your own machine — see
-// backend/README.md for setup). No paid API, no API key ships in this
-// app: the backend does the actual processing entirely on your own
-// computer, and this function just uploads the source image to it and
-// saves back whatever transparent PNG it returns.
+import { File } from "expo-file-system";
 
 import { API_CONFIG } from "@/config/api";
+
+import { base64ToUint8Array } from "@/utils/base64";
+
 import { getImageDimensions } from "@/utils/imageDimensions";
+
 import { saveProcessedImageToAppStorage } from "@/utils/imageStorage";
 
 export interface RemoveBackgroundResult {
@@ -21,149 +14,325 @@ export interface RemoveBackgroundResult {
   height: number;
 }
 
+interface RemoveBackgroundApiResponse {
+  imageBase64: string;
+  mimeType: string;
+}
+
+interface BackendErrorResponse {
+  detail?: string;
+}
+
 export class BackgroundRemovalUnavailableError extends Error {
   constructor(message: string) {
     super(message);
+
     this.name = "BackgroundRemovalUnavailableError";
   }
 }
 
+// ============================================================
+// MIME TYPE
+// ============================================================
+
 function inferUploadMimeType(uri: string): string {
   const cleanUri = uri.split("?")[0];
+
   const match = /\.([a-zA-Z0-9]+)$/.exec(cleanUri);
+
   const extension = match?.[1]?.toLowerCase();
 
   switch (extension) {
     case "png":
       return "image/png";
+
     case "jpg":
     case "jpeg":
       return "image/jpeg";
+
     case "webp":
       return "image/webp";
+
     case "heic":
       return "image/heic";
+
     case "heif":
       return "image/heif";
+
+    case "gif":
+      return "image/gif";
+
     default:
-      // rembg/PIL can generally sniff the real format from content, and
-      // the backend also validates the actual bytes — this is just a
-      // reasonable multipart Content-Type when the extension is
-      // ambiguous or missing.
-      return "image/jpeg";
+      return "application/octet-stream";
   }
 }
 
-/**
- * Attempts to remove the background from the image at `sourceUri` by
- * uploading it to the local background-removal backend (see backend/),
- * and saves the returned transparent PNG into app-owned persistent
- * storage.
- *
- * Throws BackgroundRemovalUnavailableError with a user-facing message
- * on any failure (backend not running, network issue, unsupported
- * image, server-side processing error) — never returns a fake result.
- */
+// ============================================================
+// BACKEND ERROR PARSER
+// ============================================================
+
+async function getBackendErrorMessage(
+  response: Response,
+): Promise<string | null> {
+  try {
+    const payload = (await response.json()) as BackendErrorResponse;
+
+    if (typeof payload.detail === "string" && payload.detail.trim()) {
+      return payload.detail.trim();
+    }
+  } catch {
+    // Ignore malformed/non-JSON
+    // backend errors.
+  }
+
+  return null;
+}
+
+// ============================================================
+// REMOVE BACKGROUND
+// ============================================================
+
 export async function removeImageBackground(
   sourceUri: string,
 ): Promise<RemoveBackgroundResult> {
   if (__DEV__) {
-    // Temporary development diagnostic — confirms which URL this
-    // build actually resolved (EXPO_PUBLIC_BACKEND_URL from .env, or
-    // the Android-emulator default from src/config/api.ts) without
-    // needing to inspect .env by hand.
     console.log("[Remove BG] backend URL:", API_CONFIG.backendUrl);
+
+    console.log("[Remove BG] source URI:", sourceUri);
   }
 
-  const mimeType = inferUploadMimeType(sourceUri);
+  // ==========================================================
+  // 1. READ SOURCE IMAGE
+  // ==========================================================
 
-  const formData = new FormData();
-  // React Native's FormData accepts a { uri, name, type } object in
-  // place of a web File/Blob (which don't exist in this environment) —
-  // this is the standard RN upload pattern. TypeScript's DOM lib types
-  // FormData.append's second argument as string | Blob, so this needs
-  // a cast; the object shape itself is what React Native's networking
-  // layer actually expects at runtime.
-  formData.append("image", {
-    uri: sourceUri,
-    name: `upload.${mimeType.split("/")[1] ?? "jpg"}`,
-    type: mimeType,
-  } as unknown as Blob);
+  let imageBase64: string;
 
-  let response: Response;
   try {
-    // Deliberately NOT setting a Content-Type header: fetch/FormData
-    // needs to generate the multipart boundary itself, and manually
-    // setting it (e.g. to "multipart/form-data") breaks the boundary
-    // and the backend won't be able to parse the upload.
-    response = await fetch(`${API_CONFIG.backendUrl}/remove-bg`, {
-      method: "POST",
-      body: formData,
-    });
+    const sourceFile = new File(sourceUri);
+
+    if (!sourceFile.exists) {
+      throw new Error("Source file does not exist.");
+    }
+
+    /*
+     * Expo FileSystem File API.
+     *
+     * Read the actual local image bytes
+     * as Base64.
+     *
+     * This avoids React Native's broken
+     * FormData file-part path that produced:
+     *
+     * Unsupported FormDataPart implementation
+     */
+    imageBase64 = sourceFile.base64Sync();
   } catch (error) {
-    // The user-facing message below stays generic on purpose (it
-    // doesn't know WHY the connection failed), but the real error is
-    // exactly what distinguishes "cleartext HTTP blocked" from "wrong
-    // IP" from "backend not running" etc — never swallow it silently.
     if (__DEV__) {
-      console.error("[Remove BG] network error:", error);
+      console.error("[Remove BG] " + "source read failed:", error);
     }
 
     throw new BackgroundRemovalUnavailableError(
-      "Could not connect to the background-removal service. Make sure " +
-        "the local backend is running (see backend/README.md) and that " +
-        "EXPO_PUBLIC_BACKEND_URL in your .env points at it.",
+      "StickerCut could not read " + "this image. " + "Try importing it again.",
+    );
+  }
+
+  if (!imageBase64 || imageBase64.length === 0) {
+    throw new BackgroundRemovalUnavailableError(
+      "The selected image " + "contains no image data.",
     );
   }
 
   if (__DEV__) {
-    console.log("[Remove BG] response status:", response.status);
+    console.log("[Remove BG] " + "source base64 length:", imageBase64.length);
   }
 
+  // ==========================================================
+  // 2. SEND JSON TO BACKEND
+  // ==========================================================
+
+  let response: Response;
+
+  try {
+    response = await fetch(`${API_CONFIG.backendUrl}/remove-bg-base64`, {
+      method: "POST",
+
+      headers: {
+        "Content-Type": "application/json",
+
+        Accept: "application/json",
+      },
+
+      body: JSON.stringify({
+        imageBase64,
+
+        mimeType: inferUploadMimeType(sourceUri),
+      }),
+    });
+  } catch (error) {
+    if (__DEV__) {
+      console.error("[Remove BG] " + "network error:", error);
+    }
+
+    throw new BackgroundRemovalUnavailableError(
+      "Could not connect to " +
+        "the background-removal " +
+        "service. " +
+        "Make sure the local " +
+        "backend is running.",
+    );
+  }
+
+  if (__DEV__) {
+    console.log("[Remove BG] " + "response status:", response.status);
+  }
+
+  // ==========================================================
+  // 3. HANDLE HTTP ERRORS
+  // ==========================================================
+
   if (!response.ok) {
+    const backendMessage = await getBackendErrorMessage(response);
+
+    if (__DEV__) {
+      console.error(
+        "[Remove BG] " + "backend returned error:",
+        response.status,
+        backendMessage,
+      );
+    }
+
     if (response.status === 400) {
       throw new BackgroundRemovalUnavailableError(
-        "This image couldn't be processed. Try a different photo.",
+        backendMessage ??
+          "This image could " + "not be processed. " + "Try another image.",
+      );
+    }
+
+    if (response.status === 503) {
+      throw new BackgroundRemovalUnavailableError(
+        backendMessage ??
+          "The background-removal " +
+            "model is still loading. " +
+            "Try again shortly.",
       );
     }
 
     throw new BackgroundRemovalUnavailableError(
-      "The background-removal service ran into a problem processing " +
-        "this image. Please try again.",
+      backendMessage ??
+        "The background-removal " +
+          "service failed while " +
+          "processing this image.",
     );
   }
 
-  let bytes: Uint8Array;
+  // ==========================================================
+  // 4. PARSE BACKEND JSON
+  // ==========================================================
+
+  let payload: RemoveBackgroundApiResponse;
+
   try {
-    const buffer = await response.arrayBuffer();
-    bytes = new Uint8Array(buffer);
+    payload = (await response.json()) as RemoveBackgroundApiResponse;
   } catch (error) {
     if (__DEV__) {
-      console.error("[Remove BG] failed to read response body:", error);
+      console.error("[Remove BG] " + "JSON parsing failed:", error);
     }
 
     throw new BackgroundRemovalUnavailableError(
-      "The background-removal service returned an unreadable response.",
+      "The background-removal " + "service returned " + "an invalid response.",
+    );
+  }
+
+  if (
+    !payload ||
+    typeof payload.imageBase64 !== "string" ||
+    payload.imageBase64.length === 0
+  ) {
+    throw new BackgroundRemovalUnavailableError(
+      "The background-removal " + "service returned " + "no processed image.",
     );
   }
 
   if (__DEV__) {
-    console.log("[Remove BG] bytes:", bytes.byteLength);
-  }
-
-  if (bytes.byteLength === 0) {
-    throw new BackgroundRemovalUnavailableError(
-      "The background-removal service returned an empty result.",
+    console.log(
+      "[Remove BG] " + "output base64 length:",
+      payload.imageBase64.length,
     );
   }
 
-  const uri = saveProcessedImageToAppStorage(bytes, "png");
+  // ==========================================================
+  // 5. BASE64 -> UINT8ARRAY
+  // ==========================================================
+
+  let outputBytes: Uint8Array;
+
+  try {
+    outputBytes = base64ToUint8Array(payload.imageBase64);
+  } catch (error) {
+    if (__DEV__) {
+      console.error("[Remove BG] " + "Base64 decode failed:", error);
+    }
+
+    throw new BackgroundRemovalUnavailableError(
+      "StickerCut could not " + "decode the processed image.",
+    );
+  }
+
+  if (outputBytes.byteLength === 0) {
+    throw new BackgroundRemovalUnavailableError(
+      "The processed image " + "was empty.",
+    );
+  }
+
+  if (__DEV__) {
+    console.log("[Remove BG] " + "decoded PNG bytes:", outputBytes.byteLength);
+  }
+
+  // ==========================================================
+  // 6. SAVE TRANSPARENT PNG
+  // ==========================================================
+
+  let uri: string;
+
+  try {
+    uri = saveProcessedImageToAppStorage(outputBytes, "png");
+  } catch (error) {
+    if (__DEV__) {
+      console.error("[Remove BG] " + "processed image save failed:", error);
+    }
+
+    throw new BackgroundRemovalUnavailableError(
+      "StickerCut could not " + "save the processed image.",
+    );
+  }
 
   if (__DEV__) {
     console.log("[Remove BG] saved URI:", uri);
   }
 
-  const { width, height } = await getImageDimensions(uri);
+  // ==========================================================
+  // 7. VERIFY IMAGE + DIMENSIONS
+  // ==========================================================
 
-  return { uri, width, height };
+  try {
+    const { width, height } = await getImageDimensions(uri);
+
+    if (__DEV__) {
+      console.log("[Remove BG] " + "processed dimensions:", width, "x", height);
+    }
+
+    return {
+      uri,
+      width,
+      height,
+    };
+  } catch (error) {
+    if (__DEV__) {
+      console.error("[Remove BG] " + "processed image load failed:", error);
+    }
+
+    throw new BackgroundRemovalUnavailableError(
+      "The processed image " + "was saved but could " + "not be loaded.",
+    );
+  }
 }
